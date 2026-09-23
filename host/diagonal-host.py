@@ -247,11 +247,8 @@ def op_ping(_payload, _opts):
             license_required, msg = True, LICENSE_MESSAGE
     except subprocess.TimeoutExpired:
         ok, msg = False, "fm available timed out"
-    if ok and not schemas_ok():
-        # The installer could not write them (typically: terms not yet accepted). Now fm works, so do it here;
-        # stdout is the native-messaging channel, so the installer's progress lines are swallowed.
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            install_schemas()
+    if ok:
+        ensure_schemas()
     mode = organize_mode()
     return {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": ok, "fmMessage": msg,
             "licenseRequired": license_required, "schemasOk": schemas_ok(), "organizeMode": mode}
@@ -261,7 +258,19 @@ def schemas_ok():
     return bool(schema_path("name.json")) and organize_mode() != "missing"
 
 
+def ensure_schemas():
+    """Write the schema files on first use, so install order does not matter (e.g. the fm terms were
+    accepted after the installer ran). stdout is the native-messaging channel: progress lines are swallowed."""
+    if schemas_ok():
+        return
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        rc = install_schemas()
+    if rc == INSTALL_LICENSE_EXIT:
+        raise Fail("LICENSE_REQUIRED", LICENSE_MESSAGE)
+
+
 def op_name(payload, opts):
+    ensure_schemas()
     schema = schema_path("name.json")
     if not schema:
         raise Fail("SCHEMA_MISSING", os.path.join(SCHEMAS, "name.json"))
@@ -276,6 +285,7 @@ def op_name(payload, opts):
 
 def op_organize(payload, opts):
     strict = opts.get("strict", False)
+    ensure_schemas()
     mode = organize_mode()
     try:
         if mode == "nested":

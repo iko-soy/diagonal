@@ -5,6 +5,7 @@ control.json keys:
   respond_queue:  list of the same, consumed one per call before `respond` is used
   available:      {"stdout": str, "stderr": str, "exit": int} for `fm available`
   schema_nested:  false → `fm schema` with --object fails (simulates no nested-array support)
+  schema_fail:    true → every `fm schema` fails
   license:        true → every command exits 69 with the terms notice, as fm does before `sudo fm license`
 Every invocation's argv is appended to argv.log as one JSON line.
 """
@@ -27,12 +28,23 @@ def main():
     path = os.path.join(HERE, "control.json")
     control = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
     cmd = argv[0] if argv else ""
-    if control.get("license"):
+    if cmd == "license":
+        # Like `sudo fm license`: show the terms, then agree or decline on stdin.
+        sys.stdout.write("APPLE FOUNDATION MODELS CLI LEGAL NOTICE & TERMS\n...\nType 'agree' to accept: ")
+        sys.stdout.flush()
+        agreed = sys.stdin.readline().strip().lower() == "agree"
+        if agreed:
+            control["license"] = False
+            json.dump(control, open(path, "w", encoding="utf-8"))
+        spec = {"exit": 0 if agreed else 1}
+    elif control.get("license"):
         spec = {"stderr": LICENSE_NOTICE, "exit": 69}
     elif cmd == "available":
         spec = control.get("available", {"stdout": "available", "exit": 0})
     elif cmd == "schema":
-        if "--object" in argv and control.get("schema_nested", True) is False:
+        if control.get("schema_fail"):
+            spec = {"stderr": "error: schema generation failed", "exit": 1}
+        elif "--object" in argv and control.get("schema_nested", True) is False:
             spec = {"stderr": "error: unknown option --object", "exit": 64}
         else:
             spec = {"stdout": json.dumps({"schema": argv[3] if len(argv) > 3 else "x", "args": argv[1:]}), "exit": 0}

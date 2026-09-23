@@ -188,6 +188,7 @@ class ErrorCodes(HostCase):
 
     def test_schema_missing(self):
         os.remove(os.path.join(self.support, "schemas", "name.json"))
+        self.control({"schema_fail": True})  # first-use repair fails too
         r = self.call("name", {"items": ITEMS3})
         self.assertEqual(r["error"]["code"], "SCHEMA_MISSING")
 
@@ -257,6 +258,21 @@ class InstallSchemas(HostCase):
         self.assertEqual(code, 0, p.stderr)
         self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "organize-assign.json", "organize-labels.json"])
 
+
+    def test_first_use_writes_missing_schemas(self):
+        for f in os.listdir(os.path.join(self.support, "schemas")):
+            os.remove(os.path.join(self.support, "schemas", f))
+        self.respond(json.dumps({"title": "Rust async runtimes", "emoji": "🦀"}))
+        r = self.call("name", {"items": ITEMS3})
+        self.assertTrue(r["ok"], r)
+        self.assertIn("name.json", os.listdir(os.path.join(self.support, "schemas")))
+
+    def test_first_use_without_the_terms_says_so(self):
+        for f in os.listdir(os.path.join(self.support, "schemas")):
+            os.remove(os.path.join(self.support, "schemas", f))
+        self.control({"license": True})
+        r = self.call("name", {"items": ITEMS3})
+        self.assertEqual(r["error"]["code"], "LICENSE_REQUIRED", r)
 
     def test_license_stops_early_without_claiming_nesting_is_unsupported(self):
         for f in os.listdir(os.path.join(self.support, "schemas")):

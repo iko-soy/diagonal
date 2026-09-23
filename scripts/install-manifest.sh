@@ -52,18 +52,43 @@ for ch in "${CHANNELS[@]}"; do
   echo "manifest: $DIR/io.diagonal.host.json"
 done
 
-echo "schemas:"
-rc=0
-"$BIN" --install-schemas || rc=$?
-if [[ $rc -eq 3 ]]; then
-  echo
-  echo "One more step: accept Apple's terms for the fm tool once (asks for your password):"
-  echo "  sudo fm license"
-  echo "Diagonal finishes setting itself up the next time Brave talks to it."
-  echo
-elif [[ $rc -ne 0 ]]; then
-  echo "  (schema install failed: is Apple Intelligence on? Details above.)"
+FM="${DIAGONAL_FM:-/usr/bin/fm}"
+
+# fm refuses to run (exit 69) until someone accepts Apple's terms for it, once per Mac.
+needs_license() {
+  local out rc=0
+  out=$("$FM" available --model system 2>&1) || rc=$?
+  [[ $rc -eq 69 ]] || grep -qiE "legal notice|fm license" <<<"$out"
+}
+
+echo
+if [[ ! -x "$FM" ]]; then
+  echo "Diagonal's host is installed, but $FM is missing: Diagonal needs macOS 27 with Apple Intelligence."
+  exit 0
 fi
-echo "self-test:"
-"$BIN" --selftest || true
-echo "extension ID: $ID"
+
+if needs_license; then
+  echo "Diagonal names tabs with Apple's on-device model through the fm tool, which asks you to accept"
+  echo "Apple's terms once per Mac. The choice applies to every user here, so sudo asks for your password."
+  # Only with a terminal to read the terms and answer in; brew and double-click installs have one.
+  if [[ -z "${DIAGONAL_NO_PROMPT:-}" ]] && { : </dev/tty; } 2>/dev/null; then
+    ${DIAGONAL_SUDO-sudo} "$FM" license </dev/tty >/dev/tty 2>&1 || true
+    echo
+  fi
+  if needs_license; then
+    echo
+    echo "Diagonal is installed, but it can't name tabs until Apple's terms for fm are accepted."
+    echo "When you're ready, run: sudo fm license"
+    exit 0
+  fi
+fi
+
+# Diagonal also writes these on first use; doing it now lets the self-test below cover the model.
+schemas_out=$("$BIN" --install-schemas 2>&1) || true
+if selftest_out=$("$BIN" --selftest 2>&1); then
+  echo "Diagonal's host is ready."
+else
+  echo "Diagonal's host is installed, but its self-test found a problem:"
+  echo "$schemas_out"
+  echo "$selftest_out"
+fi

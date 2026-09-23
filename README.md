@@ -28,12 +28,14 @@ The model sees a tab's title, address and `<meta name="description">`, and nothi
 brew install iko-soy/tap/diagonal
 ```
 
-This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, and installs the native host and registers it with Brave. Then, once:
+This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, installs the native host and registers it with Brave.
 
-1. Accept Apple's terms for the `fm` tool, which it asks for once per Mac before it runs at all: `sudo fm license`. Diagonal writes its model schemas on its own after that.
-2. Open `brave://extensions` and turn on **Developer mode**.
-3. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
-4. Open Diagonal's settings and click **Run self-test**.
+Apple's `fm` tool refuses to run until its terms are accepted once per Mac. If they aren't yet, the install shows them (through `sudo fm license`, so it asks for your password) and you agree or decline there. If you decline, the install still finishes and tells you to run `sudo fm license` when you're ready; until then Diagonal's popup says the same. The install ends with "Diagonal's host is ready." once everything works.
+
+Then load the extension in Brave once:
+
+1. Open `brave://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
 
 To update: `brew upgrade --cask --greedy diagonal`, then click reload on Diagonal at `brave://extensions`. `brew uninstall diagonal` removes the extension folder, the host and its Brave manifest; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
 
@@ -49,7 +51,7 @@ Brave only installs extensions on its own from the Chrome Web Store, so the one 
    bash ~/Applications/Diagonal/install-host.command
    ```
 
-   (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again. If it asks you to, run `sudo fm license` once to accept Apple's terms for `fm`.
+   (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again. It shows Apple's terms for `fm` if they haven't been accepted on this Mac yet, and ends with "Diagonal's host is ready." when everything works.
 4. Open Diagonal's settings and click **Run self-test**. Brave does not need a restart.
 
 The zip carries the host (`host/`), `extension-id` and `install-host.command`, which is the same script as `scripts/install-manifest.sh`. When you update to a newer release, rerun step 3.
@@ -129,7 +131,7 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 
 Everything was tested against a fake `fm`. These are open until someone runs it on macOS 27 (section 16 of the spec):
 
-- **Confirmed on a Mac:** `fm` is at `/usr/bin/fm`, and until an admin runs `sudo fm license` every `fm` command exits 69 with a terms notice. Diagonal reports that as `LICENSE_REQUIRED` with the fix, and the host writes its schemas on the next ping once `fm` works.
+- **Confirmed on a Mac:** `fm` is at `/usr/bin/fm`, and until an admin runs `sudo fm license` every `fm` command exits 69 with a terms notice. The installer offers the terms in the terminal; if they are declined, Diagonal reports `LICENSE_REQUIRED` with the fix. The host writes its schemas on first use, so install order does not matter.
 - The `fm schema` flags. `diagonal-host --install-schemas` tries the nested organize schema and falls back to the two flat schemas plus two calls if that fails. The flags are in `SCHEMA_COMMANDS` at the top of `host/diagonal-host.py`.
 - `fm` stderr wording. `classify()` matches keywords, so an unexpected message shows as `FM_ERROR` with the raw text on the settings page.
 - Whether `fm respond` can read the prompt from stdin. Until then, the prompt is an argument and is briefly visible in `ps`.

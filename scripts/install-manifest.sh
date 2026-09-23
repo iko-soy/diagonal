@@ -7,6 +7,12 @@
 # host manifest with that absolute path and the pinned extension ID, then installs the fm schemas
 # and runs the self-test. Safe to re-run.
 set -euo pipefail
+# Keep a copy of this run's output for diagnosis (brew's own output scrolls away).
+LOG_DIR="$HOME/Library/Logs/Diagonal"
+if mkdir -p "$LOG_DIR" 2>/dev/null; then
+  exec > >(tee "$LOG_DIR/install.log") 2>&1
+  echo "$(date '+%Y-%m-%d %H:%M:%S') install-host from $0 (HOME=$HOME PATH=$PATH)"
+fi
 trap 'echo "Diagonal host install failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [[ -d "$HERE/host" ]]; then cd "$HERE"; else cd "$HERE/.."; fi

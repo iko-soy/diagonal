@@ -1,0 +1,63 @@
+name: Release
+
+# Every push to master builds the extension and publishes it as a GitHub release.
+# The version is the commit's timestamp in UTC, YYYY.MM.DD.HHMM, used as the tag and release name.
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.sha }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Version from commit time
+        id: version
+        run: |
+          version=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y.%m.%d.%H%M "$GITHUB_SHA")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version"
+
+      - name: Typecheck and test
+        run: npm run check
+
+      - name: Build
+        env:
+          DIAGONAL_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm run build
+          (cd dist && zip -qr "../diagonal-extension-${DIAGONAL_VERSION}.zip" .)
+          cat dist/manifest.json | head -5
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          asset="diagonal-extension-${VERSION}.zip"
+          notes="Built from ${GITHUB_SHA::7}. Unzip and load the folder at brave://extensions (Developer mode → Load unpacked)."
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            # Two commits in the same minute share a version: refresh the asset on the existing release.
+            gh release upload "$VERSION" "$asset" --clobber
+          else
+            gh release create "$VERSION" "$asset" --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes"
+          fi

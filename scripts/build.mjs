@@ -24,6 +24,12 @@ function copyStatic() {
     console.warn("manifest.json has no pinned key yet: run scripts/gen-key.sh (the extension ID will not be stable)");
     delete manifest.key;
   }
+  const stamp = process.env.DIAGONAL_VERSION;
+  if (stamp) {
+    // Release builds pass the commit time as YYYY.MM.DD.HHMM (see .github/workflows/release.yml).
+    if (!/^\d{4}\.\d{2}\.\d{2}\.\d{4}$/.test(stamp)) throw new Error(`DIAGONAL_VERSION must be YYYY.MM.DD.HHMM, got ${stamp}`);
+    manifest.version = stamp;
+  }
   writeFileSync(join(dist, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   cpSync(join(root, "src/popup/popup.html"), join(dist, "popup.html"));
   cpSync(join(root, "src/options/options.html"), join(dist, "options.html"));

@@ -85,6 +85,10 @@ Layout follows the spec: `src/background/` (engine, naming, organize, tidy, host
 
 `host/emoji.txt` is the single emoji list. `npm run gen-emoji` regenerates `src/shared/emoji.gen.ts` from it.
 
+### Releases
+
+Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs both test suites, builds with the manifest `version` set to the commit's UTC time as `YYYY.MM.DD.HHMM`, and publishes a GitHub release tagged with that version, with `diagonal-extension-<version>.zip` attached. Two commits in the same minute share a release; the later one replaces its zip. Locally, `DIAGONAL_VERSION=2026.09.23.1619 npm run build` produces the same stamped build.
+
 ### Pinning a different extension ID
 
 `scripts/gen-key.sh` creates `key.pem` if it is missing, writes the public key into `manifest.json`, the ID into `extension-id` and into `ALLOWED_ORIGIN` in `host/diagonal-host.py`, and prints the ID. The shipped ID comes from a key that is not included; you only need the private key to pack a `.crx`. Running the script without a `key.pem` makes a new key and a new ID, so after that rebuild and rerun the host installer.

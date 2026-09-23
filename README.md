@@ -22,17 +22,30 @@ The model sees a tab's title, address and `<meta name="description">`, and nothi
 
 ## Install
 
-### 1. The extension
+### From a release (no clone needed)
 
-The built extension is in `dist/` (or `diagonal-extension/` next to this folder in the delivery).
+1. Download `diagonal-extension-<version>.zip` from the [latest release](https://github.com/iko-soy/diagonal/releases/latest) and unzip it somewhere it can stay, for example `~/Applications/Diagonal`.
+2. Open `brave://extensions`, turn on **Developer mode**, click **Load unpacked** and pick that folder.
+3. Install the native host once, from Terminal:
 
-1. Open `brave://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked** and pick the `dist/` folder.
+   ```sh
+   bash ~/Applications/Diagonal/install-host.command
+   ```
+
+   (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again.
+4. Open Diagonal's settings and click **Run self-test**. Brave does not need a restart.
+
+The zip carries the host (`host/`), `extension-id` and `install-host.command`, which is the same script as `scripts/install-manifest.sh`. When you update to a newer release, rerun step 3.
+
+### From source
+
+#### 1. The extension
+
+1. `npm ci && npm run build` writes the unpacked extension to `dist/`.
+2. Open `brave://extensions`, turn on **Developer mode**, click **Load unpacked** and pick `dist/`.
 3. Check that the ID shown is `mpnodlalikgeehnlnofdkpgapkmbkjdf`. It is pinned by the `key` in `manifest.json`, so it stays the same across reloads and machines.
 
-To rebuild from source: `npm ci && npm run build`.
-
-### 2. The native host
+#### 2. The native host
 
 Without Nix:
 
@@ -56,7 +69,7 @@ programs.diagonal.enable = true;
 
 `nix build .#extension` builds `dist/` into `./result`; `nix build .#diagonal-host` builds the host.
 
-### 3. Check it
+#### 3. Check it
 
 Open Diagonal's settings page and click **Run self-test**. Expect `fmAvailable: true`, `schemasOk: true` and a title for the three fixture tabs. From a terminal, `diagonal-host --selftest` runs the same checks.
 

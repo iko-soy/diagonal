@@ -54,7 +54,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           asset="diagonal-extension-${VERSION}.zip"
-          notes="Built from ${GITHUB_SHA::7}. Unzip and load the folder at brave://extensions (Developer mode → Load unpacked)."
+          notes="Built from ${GITHUB_SHA::7}. Unzip, load the folder at brave://extensions (Developer mode → Load unpacked), then install the native host once from Terminal: bash <that folder>/install-host.command"
           if gh release view "$VERSION" >/dev/null 2>&1; then
             # Two commits in the same minute share a version: refresh the asset on the existing release.
             gh release upload "$VERSION" "$asset" --clobber

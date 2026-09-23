@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Non-Nix installer for the native host (section 14).
 #   scripts/install-manifest.sh [--beta] [--nightly] [--all-channels]
+# The release zip ships this same script as install-host.command next to host/ and extension-id,
+# so `bash install-host.command` works from the unzipped extension folder too.
 # Copies host/ to ~/.local/share/diagonal-host, links ~/.local/bin/diagonal-host to it, writes the Brave
 # host manifest with that absolute path and the pinned extension ID, then installs the fm schemas
 # and runs the self-test. Safe to re-run.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [[ -d "$HERE/host" ]]; then cd "$HERE"; else cd "$HERE/.."; fi
 
 CHANNELS=("Brave-Browser")
 for arg in "$@"; do
@@ -24,12 +27,12 @@ if [[ -z "$ID" ]]; then
 fi
 
 PYTHON=$(command -v python3 || true)
-if [[ -z "$PYTHON" ]]; then
-  echo "python3 not found on PATH" >&2
+# Brave starts the host with a minimal PATH, so the shebang names this python3 explicitly.
+# On a Mac without the Command Line Tools, /usr/bin/python3 is a stub that only offers to install them.
+if [[ -z "$PYTHON" ]] || ! PYTHON=$("$PYTHON" -c 'import sys; print(sys.executable)' 2>/dev/null); then
+  echo "python3 is not set up. Run: xcode-select --install   then run this installer again." >&2
   exit 1
 fi
-# Brave starts the host with a minimal PATH, so the shebang names this python3 explicitly.
-PYTHON=$("$PYTHON" -c 'import sys; print(sys.executable)')
 
 SHARE="$HOME/.local/share/diagonal-host"
 BIN="$HOME/.local/bin/diagonal-host"
@@ -37,6 +40,8 @@ mkdir -p "$SHARE" "$(dirname "$BIN")"
 cp host/prompts.py host/validate.py host/emoji.txt "$SHARE/"
 sed -e "1s|.*|#!$PYTHON|" -e "s|^ALLOWED_ORIGIN = \".*\"|ALLOWED_ORIGIN = \"chrome-extension://$ID/\"|" host/diagonal-host.py > "$SHARE/diagonal-host.py"
 chmod 755 "$SHARE/diagonal-host.py"
+# Files unzipped from a browser download carry the quarantine flag; the host must not.
+xattr -dr com.apple.quarantine "$SHARE" 2>/dev/null || true
 ln -sf "$SHARE/diagonal-host.py" "$BIN"
 echo "host:     $BIN -> $SHARE/diagonal-host.py"
 

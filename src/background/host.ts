@@ -111,7 +111,7 @@ export function explain(error: HostError | undefined, extensionId = ""): string 
   if (!error) return "";
   switch (error.code) {
     case "HOST_NOT_FOUND":
-      return `Native host not installed. Expected manifest at ${HOST_MANIFEST_PATH}`;
+      return `Native host not installed. In Terminal, run: bash <the Diagonal folder>/install-host.command (expected manifest at ${HOST_MANIFEST_PATH})`;
     case "HOST_FORBIDDEN":
     case "FORBIDDEN_ORIGIN":
       return `The host does not allow this extension. Its manifest needs "allowed_origins": ["chrome-extension://${extensionId}/"]`;

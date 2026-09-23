@@ -1,6 +1,6 @@
 // Bundles src/ into dist/ (the unpacked extension). `--watch` rebuilds on change.
 import * as esbuild from "esbuild";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,6 +35,12 @@ function copyStatic() {
   cpSync(join(root, "src/options/options.html"), join(dist, "options.html"));
   cpSync(join(root, "src/shared/ui.css"), join(dist, "ui.css"));
   cpSync(join(root, "icons"), join(dist, "icons"), { recursive: true, filter: (p) => !p.endsWith(".svg") });
+  // The native host and its installer ride along, so the release zip is all a user needs.
+  mkdirSync(join(dist, "host"));
+  for (const f of ["diagonal-host.py", "prompts.py", "validate.py", "emoji.txt"]) cpSync(join(root, "host", f), join(dist, "host", f));
+  cpSync(join(root, "extension-id"), join(dist, "extension-id"));
+  cpSync(join(root, "scripts/install-manifest.sh"), join(dist, "install-host.command"));
+  chmodSync(join(dist, "install-host.command"), 0o755);
 }
 
 if (watch) {

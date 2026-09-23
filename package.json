@@ -1,0 +1,27 @@
+{
+  "name": "grove-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dia-style tab groups for Brave, named by Apple's on-device model.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:host": "cd host && python3 -m unittest discover -s tests -v",
+    "gen-emoji": "node scripts/gen-emoji.mjs",
+    "zip": "node scripts/build.mjs && cd dist && zip -qr ../grove-extension.zip .",
+    "smoke": "node scripts/build.mjs && node test/e2e/smoke.mjs",
+    "icons": "node scripts/render-icons.mjs",
+    "check": "tsc --noEmit && vitest run && cd host && python3 -m unittest discover -s tests"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.0",
+    "esbuild": "^0.28.2",
+    "fast-check": "^4.10.2",
+    "playwright-core": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.1"
+  }
+}

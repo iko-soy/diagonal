@@ -1,0 +1,79 @@
+{
+  "manifest_version": 3,
+  "name": "Grove",
+  "version": "0.1.0",
+  "minimum_chrome_version": "121",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjQfra9g/ZwPFNa1EGvqo6GORMuLrj9Gk6/yonBCrF78qMk6Kb8S7inM5I0O+V+aaZ1DwI3IPAJTyTbvzcPR5xuaGzaDCBuwqb2uo3zyY8dKqK//s6SXbDVue/czTRXvEBrKx0G4Mo19VFmft2XcHqDdqRZH3eSagHLw2r+CNLAeyNJOQNN8/Dfdx56axtB++HwK+/D9fafFQUMsTOGIQ3atjkM9VCK7050CFTeoL2IpJPJuo5Mh4Rd+zOzMI6Q4mfb2mFgraRwMNevbYBRgWWn19UMkKIc1IkP17f6BDo/0NP7ehGxL/rUmB+pqNCAmWDxJyYLyER35y5Ap+5BLpcQIDAQAB",
+  "description": "Dia-style tab groups, named by Apple's on-device model.",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "storage",
+    "alarms",
+    "nativeMessaging",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Grove",
+    "default_icon": {
+      "16": "icons/16.png",
+      "32": "icons/32.png",
+      "48": "icons/48.png",
+      "128": "icons/128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "options_page": "options.html",
+  "commands": {
+    "organize-window": {
+      "suggested_key": {
+        "default": "Alt+Shift+G",
+        "mac": "Alt+Shift+G"
+      },
+      "description": "Organize ungrouped tabs in this window"
+    },
+    "rename-current-group": {
+      "suggested_key": {
+        "default": "Alt+Shift+N",
+        "mac": "Alt+Shift+N"
+      },
+      "description": "Re-name the current tab group now"
+    },
+    "tidy-now": {
+      "description": "Run the tidy sweep now"
+    },
+    "new-tab-in-group": {
+      "suggested_key": {
+        "default": "Alt+Shift+T",
+        "mac": "Alt+Shift+T"
+      },
+      "description": "New tab inside the current group"
+    }
+  }
+}

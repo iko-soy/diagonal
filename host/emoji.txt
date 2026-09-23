@@ -1,0 +1,17 @@
+# Grove curated emoji list. One category per line: "<category>: <emoji> <emoji> ...".
+# The first emoji of each line is that category's default. This file is the single
+# source of truth: host/validate.py reads it at runtime and scripts/gen-emoji.mjs
+# generates src/shared/emoji.ts from it (npm run gen-emoji).
+technology: 💻 🖥️ ⌨️ 🔧 🛠️ ⚙️ 🐛 🦀 🐍 🐧 📦 🧩 🔌 🤖 🧠 🗄️ ☁️ 🔒
+reading: 📚 📖 📰 📝 🔖 ✍️ 📄 🗞️ 📜
+shopping: 🛒 🛍️ 🏷️ 👟 👕 🎁 💳
+travel: ✈️ 🗺️ 🏨 🚆 🚗 🏖️ ⛰️ 🧳 🌍 🚲
+media: 🎬 🎵 🎮 📺 🎧 📷 🎨 🎙️ 🍿 🎸
+work: 💼 📊 📈 📅 🗂️ 📋 📌 ✅ 📎 🏢 👥
+finance: 💰 🏦 💵 📉 🪙 🧾 💹
+science: 🔬 🧪 🧬 🔭 ⚗️ 🧮 📐 🌌
+food: 🍳 🍕 🍜 🥗 ☕ 🍷 🍰 🥖 🍣
+home: 🏠 🛋️ 🪴 🔨 🧹 🐶 🐱 👶
+health: 🩺 💊 🏃 🧘 🏋️ 🦷 🍎
+communication: 💬 ✉️ 📞 📣 🗣️
+misc: 🧭 ⭐ 🔥 💡 🎯 🏆 ⚽ 🎓 🌱 🎉 🔍 ⚖️ 🏛️ 🗳️ 💤 🔄

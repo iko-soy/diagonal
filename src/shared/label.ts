@@ -1,0 +1,55 @@
+import { canonicalEmoji, DEFAULT_EMOJI } from "./emoji";
+
+/** Section 6 label rules, re-checked by the worker after the host has validated. */
+export const BANNED_WORDS = new Set(["tab", "tabs", "group", "groups", "misc", "various", "stuff"]);
+export const LABEL_MIN_CHARS = 3;
+export const LABEL_MAX_CHARS = 28;
+export const LABEL_MIN_WORDS = 2;
+export const LABEL_MAX_WORDS = 4;
+
+const QUOTES = /["'“”‘’«»`]/g;
+const HAS_QUOTE = /["'“”‘’«»`]/;
+const TRAILING_PUNCT = /[\s.,;:!?…\-–—]+$/u;
+
+/** Repair what is repairable; return undefined when the label cannot be made valid. */
+export function repairLabel(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  let words = raw.replace(QUOTES, "").replace(/\s+/g, " ").trim().replace(TRAILING_PUNCT, "").split(" ").filter(Boolean);
+  words = words.filter((w) => !BANNED_WORDS.has(w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")));
+  if (words.length > LABEL_MAX_WORDS) words = words.slice(0, LABEL_MAX_WORDS);
+  while (words.length > LABEL_MIN_WORDS && words.join(" ").length > LABEL_MAX_CHARS) words.pop();
+  let label = words.join(" ").replace(TRAILING_PUNCT, "");
+  if (!label) return undefined;
+  label = label[0].toLocaleUpperCase() + label.slice(1);
+  return isValidLabel(label) ? label : undefined;
+}
+
+export function isValidLabel(label: string): boolean {
+  const words = label.split(" ").filter(Boolean);
+  return (
+    label.length >= LABEL_MIN_CHARS &&
+    label.length <= LABEL_MAX_CHARS &&
+    words.length >= LABEL_MIN_WORDS &&
+    words.length <= LABEL_MAX_WORDS &&
+    !HAS_QUOTE.test(label) &&
+    !TRAILING_PUNCT.test(label) &&
+    !words.some((w) => BANNED_WORDS.has(w.toLowerCase()))
+  );
+}
+
+export const safeEmoji = (e: unknown): string => canonicalEmoji(typeof e === "string" ? e : undefined) ?? DEFAULT_EMOJI;
+
+/** What goes on the tab strip. */
+export const stripTitle = (label: string, emoji: string | undefined, withEmoji: boolean): string =>
+  withEmoji && emoji ? `${emoji} ${label}` : label;
+
+/** The label part of a strip title we wrote, for comparisons between groups. */
+export function labelOf(title: string | undefined): string {
+  if (!title) return "";
+  const i = title.indexOf(" ");
+  if (i > 0 && canonicalEmoji(title.slice(0, i))) return title.slice(i + 1);
+  return title;
+}
+
+export const sameLabel = (a: string | undefined, b: string | undefined): boolean =>
+  !!a && !!b && labelOf(a).trim().toLocaleLowerCase() === labelOf(b).trim().toLocaleLowerCase();

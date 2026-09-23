@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Grove</title>
+  <link rel="stylesheet" href="ui.css">
+  <style>
+    body { width: 360px; padding: 12px 14px 14px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .group-actions button { padding: 2px 6px; font-size: 12px; }
+    #archive { max-height: 220px; overflow-y: auto; }
+    #groups { max-height: 200px; overflow-y: auto; }
+    .count { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <h1 class="grow">Grove</h1>
+    <span class="pill" id="status"><span class="dot" id="status-dot"></span><span id="status-text">Checking…</span></span>
+  </div>
+  <div id="notice" class="notice" hidden></div>
+
+  <div class="actions">
+    <button class="primary" id="organize">Organize this window</button>
+    <button id="tidy">Tidy now</button>
+    <button id="park" hidden></button>
+  </div>
+  <div class="actions">
+    <button class="link" id="undo-organize" hidden>Undo organize</button>
+    <button class="link" id="undo-sweep" hidden>Undo last sweep</button>
+  </div>
+  <p id="result" class="muted" hidden></p>
+  <p id="parked" class="muted"></p>
+
+  <h2>Groups in this window</h2>
+  <ul class="list" id="groups"></ul>
+
+  <div class="row"><h2 class="grow">Archive</h2><button class="link" id="restore-all" hidden>Restore all</button></div>
+  <ul class="list" id="archive"></ul>
+
+  <div class="row" style="margin-top:12px"><span class="grow"></span><button class="link" id="options">Settings</button></div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

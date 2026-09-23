@@ -22,7 +22,23 @@ The model sees a tab's title, address and `<meta name="description">`, and nothi
 
 ## Install
 
-### From a release (no clone needed)
+### With Homebrew
+
+```sh
+brew install iko-soy/tap/diagonal
+```
+
+This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, and installs the native host and registers it with Brave. Then load the extension in Brave once:
+
+1. Open `brave://extensions` and turn on **Developer mode**.
+2. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
+3. Open Diagonal's settings and click **Run self-test**.
+
+To update: `brew upgrade --cask --greedy diagonal`, then click reload on Diagonal at `brave://extensions`. `brew uninstall diagonal` removes the extension folder, the host and its Brave manifest; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
+
+Brave only installs extensions on its own from the Chrome Web Store, so the one Load unpacked step stays until Diagonal is published there.
+
+### From a release zip
 
 1. Download `diagonal-extension-<version>.zip` from the [latest release](https://github.com/iko-soy/diagonal/releases/latest) and unzip it somewhere it can stay, for example `~/Applications/Diagonal`.
 2. Open `brave://extensions`, turn on **Developer mode**, click **Load unpacked** and pick that folder.

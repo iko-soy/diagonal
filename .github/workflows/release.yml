@@ -46,6 +46,9 @@ jobs:
         run: |
           npm run build
           (cd dist && zip -qr "../diagonal-extension-${DIAGONAL_VERSION}.zip" .)
+          # Same zip under a fixed name: releases/latest/download/diagonal-extension.zip is what the
+          # Homebrew cask (iko-soy/homebrew-tap, Casks/diagonal.rb) downloads.
+          cp "diagonal-extension-${DIAGONAL_VERSION}.zip" diagonal-extension.zip
           cat dist/manifest.json | head -5
 
       - name: Publish release
@@ -54,10 +57,10 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           asset="diagonal-extension-${VERSION}.zip"
-          notes="Built from ${GITHUB_SHA::7}. Unzip, load the folder at brave://extensions (Developer mode → Load unpacked), then install the native host once from Terminal: bash <that folder>/install-host.command"
+          notes="Built from ${GITHUB_SHA::7}. Install with: brew install iko-soy/tap/diagonal. Or by hand: unzip, load the folder at brave://extensions (Developer mode → Load unpacked), then install the native host once from Terminal: bash <that folder>/install-host.command"
           if gh release view "$VERSION" >/dev/null 2>&1; then
             # Two commits in the same minute share a version: refresh the asset on the existing release.
-            gh release upload "$VERSION" "$asset" --clobber
+            gh release upload "$VERSION" "$asset" diagonal-extension.zip --clobber
           else
-            gh release create "$VERSION" "$asset" --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes"
+            gh release create "$VERSION" "$asset" diagonal-extension.zip --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes" --latest
           fi

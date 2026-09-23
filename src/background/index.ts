@@ -470,20 +470,6 @@ async function nameGroupNow(groupId: number): Promise<void> {
   await naming.nameNow(groupId);
 }
 
-async function newTabInGroup(): Promise<void> {
-  const active = await activeTab();
-  if (!active?.id) return;
-  const groupId = active.groupId ?? -1;
-  if (groupId === -1) {
-    await chrome.tabs.create({ windowId: active.windowId, index: active.index + 1 });
-    return;
-  }
-  const members = await chrome.tabs.query({ groupId });
-  const last = Math.max(...members.map((t) => t.index));
-  const tab = await chrome.tabs.create({ windowId: active.windowId, index: last + 1, openerTabId: active.id });
-  if (tab.id !== undefined) await addToGroup(rt, [tab.id], groupId);
-}
-
 chrome.commands.onCommand.addListener((command) => {
   void (async () => {
     await ready;
@@ -496,8 +482,6 @@ chrome.commands.onCommand.addListener((command) => {
         if (t && (t.groupId ?? -1) !== -1) await nameGroupNow(t.groupId);
       } else if (command === "tidy-now") {
         await runSweep(rt, true);
-      } else if (command === "new-tab-in-group") {
-        await newTabInGroup();
       }
     } catch (e) {
       logError(`command ${command}`, e);

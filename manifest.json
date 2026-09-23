@@ -67,13 +67,6 @@
     },
     "tidy-now": {
       "description": "Run the tidy sweep now"
-    },
-    "new-tab-in-group": {
-      "suggested_key": {
-        "default": "Alt+Shift+T",
-        "mac": "Alt+Shift+T"
-      },
-      "description": "New tab inside the current group"
     }
   }
 }

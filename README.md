@@ -63,7 +63,6 @@ Open Diagonal's settings page and click **Run self-test**. Expect `fmAvailable: 
 | --- | --- |
 | Organize this window | Alt+Shift+G |
 | Name the current group now | Alt+Shift+N |
-| New tab in the current group | Alt+Shift+T |
 | Tidy now | unset |
 
 Change them at `brave://extensions/shortcuts`.
@@ -95,7 +94,7 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 
 ## Where this differs from the spec, and why
 
-- **New tab in group is Alt+Shift+T, not Alt+Cmd+T.** Chromium refuses to load an extension whose manifest suggests Alt+Command+T (it is treated as Ctrl+Alt, which is reserved for AltGr). You can still bind Alt+Cmd+T by hand at `brave://extensions/shortcuts` if Brave accepts it there.
+- **No "new tab in group" shortcut.** The spec's Alt+Cmd+T command was dropped: grouping happens on its own through opener grouping, naming and Organize.
 - **Query strings.** The spec keeps the query only when the path is empty, but also wants `youtube.com/watch?v=…` kept. Diagonal keeps the whole query when the path is empty and otherwise keeps only content keys (`v`, `q`, `query`, `search_query`, `search`, `s`, `k`, `id`, `p`, `list`, `page`), dropping `utm_*` and similar.
 - **Grey is reserved for the Parked group.** Site colours hash over the other eight colours.
 - **Organize only adds tabs to Diagonal's own groups,** not to groups you made by hand, unless "Name my own groups" is on.

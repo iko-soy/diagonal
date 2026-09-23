@@ -10,6 +10,8 @@ import { forgetArchived, parkedTitle, restoreAll, restoreArchived, runSweep, und
 
 /** Event wiring only: every rule lives in engine / naming / organize / tidy. */
 
+const GROUPS_SUPPORTED = typeof chrome.tabGroups?.query === "function";
+
 const ALARM_NAMING = "naming-fallback";
 const ALARM_TIDY = "tidy-sweep";
 const ALARM_HOST = "host-retry";
@@ -335,7 +337,7 @@ async function tabById(id: number): Promise<chrome.tabs.Tab | undefined> {
 /**
  * On startup and install: rebuild the state model from the live browser. Tab and group ids change
  * across restarts, so records are matched by id first and then by URL (tabs) or title and colour
- * (groups), which keeps managed groups managed after Brave restarts.
+ * (groups), which keeps managed groups managed after the browser restarts.
  */
 async function reconcile(): Promise<void> {
   const [tabs, groups] = await Promise.all([chrome.tabs.query({}), chrome.tabGroups.query({})]);
@@ -417,48 +419,52 @@ async function boot(reason: "startup" | "installed"): Promise<void> {
 
 // ----- browser events --------------------------------------------------------------------------
 
-chrome.runtime.onStartup.addListener(() => void boot("startup"));
-chrome.runtime.onInstalled.addListener(() => void boot("installed"));
+// Every Chromium browser has tabs, but not all let extensions manage tab groups (chrome.tabGroups,
+// Chromium 89+): without it Diagonal stays idle and the popup says why.
+if (GROUPS_SUPPORTED) {
+  chrome.runtime.onStartup.addListener(() => void boot("startup"));
+  chrome.runtime.onInstalled.addListener(() => void boot("installed"));
 
-chrome.tabs.onCreated.addListener((tab) =>
-  serial("tabs.onCreated", async () => {
-    const opener = tab.openerTabId !== undefined ? await tabById(tab.openerTabId) : undefined;
-    await feed({ type: "tabCreated", tab: snapTab(tab), opener: opener && snapTab(opener) });
-  }),
-);
+  chrome.tabs.onCreated.addListener((tab) =>
+    serial("tabs.onCreated", async () => {
+      const opener = tab.openerTabId !== undefined ? await tabById(tab.openerTabId) : undefined;
+      await feed({ type: "tabCreated", tab: snapTab(tab), opener: opener && snapTab(opener) });
+    }),
+  );
 
-chrome.tabs.onUpdated.addListener((_id, change, tab) => {
-  if (!("title" in change || "url" in change || "status" in change || "groupId" in change || "pinned" in change)) return;
-  void serial("tabs.onUpdated", () => feed({ type: "tabUpdated", tab: snapTab(tab) }));
-});
-
-const refetch = (where: string) => (tabId: number) =>
-  void serial(where, async () => {
-    const t = await tabById(tabId);
-    if (t) await feed({ type: "tabUpdated", tab: snapTab(t) });
+  chrome.tabs.onUpdated.addListener((_id, change, tab) => {
+    if (!("title" in change || "url" in change || "status" in change || "groupId" in change || "pinned" in change)) return;
+    void serial("tabs.onUpdated", () => feed({ type: "tabUpdated", tab: snapTab(tab) }));
   });
-chrome.tabs.onMoved.addListener(refetch("tabs.onMoved"));
-chrome.tabs.onAttached.addListener(refetch("tabs.onAttached"));
 
-chrome.tabs.onRemoved.addListener((tabId) => void serial("tabs.onRemoved", () => feed({ type: "tabRemoved", tabId })));
+  const refetch = (where: string) => (tabId: number) =>
+    void serial(where, async () => {
+      const t = await tabById(tabId);
+      if (t) await feed({ type: "tabUpdated", tab: snapTab(t) });
+    });
+  chrome.tabs.onMoved.addListener(refetch("tabs.onMoved"));
+  chrome.tabs.onAttached.addListener(refetch("tabs.onAttached"));
 
-chrome.tabs.onReplaced.addListener((added, removed) =>
-  void serial("tabs.onReplaced", async () => {
-    const rec = state.tabs[removed];
-    delete state.tabs[removed];
-    const t = await tabById(added);
-    if (t) {
-      await feed({ type: "tabUpdated", tab: snapTab(t) });
-      if (rec?.description && state.tabs[added]) state.tabs[added].description = rec.description;
-    }
-  }),
-);
+  chrome.tabs.onRemoved.addListener((tabId) => void serial("tabs.onRemoved", () => feed({ type: "tabRemoved", tabId })));
 
-chrome.tabs.onActivated.addListener(({ tabId }) => void serial("tabs.onActivated", () => feed({ type: "tabActivated", tabId })));
+  chrome.tabs.onReplaced.addListener((added, removed) =>
+    void serial("tabs.onReplaced", async () => {
+      const rec = state.tabs[removed];
+      delete state.tabs[removed];
+      const t = await tabById(added);
+      if (t) {
+        await feed({ type: "tabUpdated", tab: snapTab(t) });
+        if (rec?.description && state.tabs[added]) state.tabs[added].description = rec.description;
+      }
+    }),
+  );
 
-chrome.tabGroups.onCreated.addListener((g) => void serial("tabGroups.onCreated", () => feed({ type: "groupCreated", group: snapGroup(g) })));
-chrome.tabGroups.onUpdated.addListener((g) => void serial("tabGroups.onUpdated", () => feed({ type: "groupUpdated", group: snapGroup(g) })));
-chrome.tabGroups.onRemoved.addListener((g) => void serial("tabGroups.onRemoved", () => feed({ type: "groupRemoved", groupId: g.id })));
+  chrome.tabs.onActivated.addListener(({ tabId }) => void serial("tabs.onActivated", () => feed({ type: "tabActivated", tabId })));
+
+  chrome.tabGroups.onCreated.addListener((g) => void serial("tabGroups.onCreated", () => feed({ type: "groupCreated", group: snapGroup(g) })));
+  chrome.tabGroups.onUpdated.addListener((g) => void serial("tabGroups.onUpdated", () => feed({ type: "groupUpdated", group: snapGroup(g) })));
+  chrome.tabGroups.onRemoved.addListener((g) => void serial("tabGroups.onRemoved", () => feed({ type: "groupRemoved", groupId: g.id })));
+}
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
@@ -637,6 +643,7 @@ async function statusFor(windowId: number | undefined): Promise<unknown> {
           size: (await chrome.tabs.query({ groupId: g.id }).catch(() => [])).length,
         })),
     ),
+    groupsSupported: GROUPS_SUPPORTED,
     extensionId: chrome.runtime.id,
     manifestPath: HOST_MANIFEST_PATH,
   };

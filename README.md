@@ -1,6 +1,6 @@
 # Diagonal
 
-Dia-style tab groups for Brave on macOS, named by Apple's on-device model through the `fm` command-line tool over Chromium native messaging. No HTTP server, no cloud call, no model download.
+Dia-style tab groups for Chromium browsers on macOS (Brave, Chrome, Edge, Vivaldi, Arc, Opera, …), named by Apple's on-device model through the `fm` command-line tool over Chromium native messaging. No HTTP server, no cloud call, no model download.
 
 You open and close tabs as usual. Diagonal does the rest on its own; there are no shortcuts and nothing to press.
 
@@ -16,7 +16,7 @@ The model sees a tab's title, address and `<meta name="description">`, and nothi
 
 ## Requirements
 
-- Brave stable 1.95+ (Chromium 121+ APIs are used)
+- A Chromium browser based on Chromium 121 or newer that lets extensions manage tab groups (`chrome.tabGroups`). Chrome, Brave (including Brave Origin), Edge and Chromium do. Browsers with their own tab grouping, such as Arc, Opera and Vivaldi, may not expose it; if so, Diagonal's popup says so and it stays idle.
 - macOS 27 on Apple silicon, with Apple Intelligence on and the on-device model downloaded (`/usr/bin/fm` ships with macOS 27)
 - Python 3 (standard library only) for the host
 
@@ -28,23 +28,23 @@ The model sees a tab's title, address and `<meta name="description">`, and nothi
 brew install iko-soy/tap/diagonal
 ```
 
-This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, installs the native host and registers it with Brave.
+This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, installs the native host and registers it with every Chromium browser on the Mac.
 
 Apple's `fm` tool refuses to run until its terms are accepted once per Mac. If they aren't yet, the install shows them (through `sudo fm license`, so it asks for your password) and you agree or decline there. If you decline, the install still finishes and tells you to run `sudo fm license` when you're ready; until then Diagonal's popup says the same. The install ends with "Diagonal's host is ready." once everything works.
 
-Then load the extension in Brave once:
+Then load the extension once, in each browser you use:
 
-1. Open `brave://extensions` and turn on **Developer mode**.
+1. Open `chrome://extensions` (it works in Brave, Edge and the rest too) and turn on **Developer mode**.
 2. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
 
-To update: `brew upgrade --cask --greedy diagonal`, then click reload on Diagonal at `brave://extensions`. `brew uninstall diagonal` removes the extension folder, the host and its Brave manifest; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
+To update: `brew upgrade --cask --greedy diagonal`, then click reload on Diagonal at `chrome://extensions`. `brew uninstall diagonal` removes the extension folder, the host and its manifests from every browser; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
 
-Brave only installs extensions on its own from the Chrome Web Store, so the one Load unpacked step stays until Diagonal is published there.
+Chromium browsers only install extensions on their own from a web store, so the one Load unpacked step stays until Diagonal is published there.
 
 ### From a release zip
 
 1. Download `diagonal-extension-<version>.zip` from the [latest release](https://github.com/iko-soy/diagonal/releases/latest) and unzip it somewhere it can stay, for example `~/Applications/Diagonal`.
-2. Open `brave://extensions`, turn on **Developer mode**, click **Load unpacked** and pick that folder.
+2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick that folder.
 3. Install the native host once, from Terminal:
 
    ```sh
@@ -52,7 +52,7 @@ Brave only installs extensions on its own from the Chrome Web Store, so the one 
    ```
 
    (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again. It shows Apple's terms for `fm` if they haven't been accepted on this Mac yet, and ends with "Diagonal's host is ready." when everything works.
-4. Open Diagonal's settings and click **Run self-test**. Brave does not need a restart.
+4. Open Diagonal's settings and click **Run self-test**. The browser does not need a restart.
 
 The zip carries the host (`host/`), `extension-id` and `install-host.command`, which is the same script as `scripts/install-manifest.sh`. When you update to a newer release, rerun step 3.
 
@@ -61,7 +61,7 @@ The zip carries the host (`host/`), `extension-id` and `install-host.command`, w
 #### 1. The extension
 
 1. `npm ci && npm run build` writes the unpacked extension to `dist/`.
-2. Open `brave://extensions`, turn on **Developer mode**, click **Load unpacked** and pick `dist/`.
+2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick `dist/`.
 3. Check that the ID shown is `mpnodlalikgeehnlnofdkpgapkmbkjdf`. It is pinned by the `key` in `manifest.json`, so it stays the same across reloads and machines.
 
 #### 2. The native host
@@ -69,10 +69,10 @@ The zip carries the host (`host/`), `extension-id` and `install-host.command`, w
 Without Nix:
 
 ```sh
-scripts/install-manifest.sh            # add --beta / --nightly / --all-channels for other Brave channels
+scripts/install-manifest.sh
 ```
 
-This copies `host/` to `~/.local/share/diagonal-host`, links `~/.local/bin/diagonal-host`, pins its shebang to your `python3`, writes `~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/io.diagonal.host.json`, runs `diagonal-host --install-schemas`, then `diagonal-host --selftest`.
+This copies `host/` to `~/.local/share/diagonal-host`, links `~/.local/bin/diagonal-host`, pins its shebang to your `python3`, runs `diagonal-host --register`, which writes `io.diagonal.host.json` into the `NativeMessagingHosts` folder of every Chromium browser's profile folder under `~/Library/Application Support` (known ones such as `Google/Chrome`, `BraveSoftware/Brave-Origin`, `Microsoft Edge`, `Arc/User Data`, plus any other folder with a Chromium `Local State` and browsing history) and checks each one the way the browser reads it, then runs `diagonal-host --install-schemas`, then `diagonal-host --selftest`.
 
 With Nix (nix-darwin + home-manager):
 
@@ -83,7 +83,7 @@ diagonal.url = "path:/path/to/diagonal";   # or a git URL once it lives in a rep
 # home-manager config
 imports = [ inputs.diagonal.homeManagerModules.default ];
 programs.diagonal.enable = true;
-# programs.diagonal.channels = [ "Brave-Browser" "Brave-Browser-Beta" ];
+# programs.diagonal.browsers = [ "BraveSoftware/Brave-Origin" "Google/Chrome" ];
 ```
 
 `nix build .#extension` builds `dist/` into `./result`; `nix build .#diagonal-host` builds the host.
@@ -125,7 +125,7 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 - **Grey is reserved for the Parked group.** Site colours hash over the other eight colours.
 - **Organize only adds tabs to Diagonal's own groups,** not to groups you made by hand, unless "Name my own groups" is on.
 - **An Organize group whose title fails validation is still created,** with the hostname as a placeholder, and the naming loop names it.
-- **Restarts.** Tab and group IDs change when Brave restarts, so records are matched to live groups by title and colour, which keeps managed groups managed.
+- **Restarts.** Tab and group IDs change when the browser restarts, so records are matched to live groups by title and colour, which keeps managed groups managed.
 
 ## Not verified on a real Mac yet
 

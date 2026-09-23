@@ -449,6 +449,124 @@ def selftest():
     return 0 if failures == 0 else 1
 
 
+# ----- registering with browsers ------------------------------------------------------------------
+
+# Chromium reads per-user host manifests from <user data dir>/NativeMessagingHosts. Known user data
+# dirs under ~/Library/Application Support; anything else that looks like a Chromium browser profile
+# is found by browser_dirs()' scan.
+KNOWN_BROWSER_DIRS = [
+    "Google/Chrome", "Google/Chrome Beta", "Google/Chrome Dev", "Google/Chrome Canary", "Chromium",
+    "BraveSoftware/Brave-Browser", "BraveSoftware/Brave-Origin", "BraveSoftware/Brave-Browser-Beta",
+    "BraveSoftware/Brave-Browser-Nightly", "Microsoft Edge", "Microsoft Edge Beta", "Microsoft Edge Dev",
+    "Microsoft Edge Canary", "Vivaldi", "Vivaldi Snapshot", "Arc/User Data", "Dia/User Data",
+    "com.operasoftware.Opera", "com.operasoftware.OperaGX", "Thorium", "net.imput.helium", "Yandex/YandexBrowser",
+]
+BROWSER_SCAN_DEPTH = 3
+REGISTERED_LIST = "registered-browsers.txt"  # next to the host: where --register wrote manifests
+
+
+def app_support():
+    return os.environ.get("DIAGONAL_APP_SUPPORT", os.path.expanduser("~/Library/Application Support"))
+
+
+def looks_like_browser(user_data_dir):
+    """A Chromium browser's user data dir: `Local State` plus a profile with browsing data.
+    Electron apps also have `Local State`, but no History, Favicons or Top Sites."""
+    if not os.path.isfile(os.path.join(user_data_dir, "Local State")):
+        return False
+    try:
+        profiles = [e for e in os.listdir(user_data_dir) if e == "Default" or e.startswith("Profile ")]
+    except OSError:
+        return False
+    return any(os.path.exists(os.path.join(user_data_dir, p, f)) for p in profiles for f in ("History", "Favicons", "Top Sites"))
+
+
+def browser_dirs():
+    base = app_support()
+    found = [os.path.join(base, rel) for rel in KNOWN_BROWSER_DIRS if os.path.isdir(os.path.join(base, rel))]
+    for root, dirs, _files in os.walk(base):
+        depth = os.path.relpath(root, base).count(os.sep) + (root != base)
+        if root != base and (root in found or looks_like_browser(root)):
+            if root not in found:
+                found.append(root)
+            dirs[:] = []  # profiles inside need no scan
+            continue
+        if depth >= BROWSER_SCAN_DEPTH or os.path.basename(root) == "Diagonal":
+            dirs[:] = []
+    return sorted(set(found))
+
+
+def manifest_problems(path, host_path):
+    try:
+        m = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return [f"unreadable ({e})"]
+    problems = []
+    if m.get("name") != HOST_NAME:
+        problems.append(f"name is {m.get('name')!r}")
+    if m.get("path") != host_path or not os.path.isabs(host_path):
+        problems.append(f"path is {m.get('path')!r}")
+    elif not os.access(host_path, os.X_OK):
+        problems.append(f"host {host_path} is missing or not executable")
+    if m.get("allowed_origins") != [ALLOWED_ORIGIN]:
+        problems.append(f"allowed_origins is {m.get('allowed_origins')}")
+    return problems
+
+
+def register(host_path):
+    """Write this host's manifest into every Chromium browser's NativeMessagingHosts folder, check each
+    one the way the browser will read it, and remember where they went for --unregister."""
+    host_path = os.path.abspath(host_path)
+    body = json.dumps(manifest_for(host_path), indent=2) + "\n"
+    dirs = browser_dirs()
+    if not dirs:
+        print("No Chromium browser found. Open your browser once, then run this again.", file=sys.stderr)
+        return 1
+    written, failures = [], 0
+    for d in dirs:
+        target_dir = os.path.join(d, "NativeMessagingHosts")
+        target = os.path.join(target_dir, f"{HOST_NAME}.json")
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            with open(target + ".tmp", "w", encoding="utf-8") as f:
+                f.write(body)
+            os.replace(target + ".tmp", target)  # a browser never reads a half-written file
+        except OSError as e:
+            print(f"  {os.path.relpath(d, app_support())}: could not write ({e})", file=sys.stderr)
+            failures += 1
+            continue
+        problems = manifest_problems(target, host_path)
+        if problems:
+            print(f"  {os.path.relpath(d, app_support())}: {'; '.join(problems)}", file=sys.stderr)
+            failures += 1
+        else:
+            print(f"registered: {os.path.relpath(d, app_support())}")
+        written.append(target)
+    try:
+        with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), REGISTERED_LIST), "w", encoding="utf-8") as f:
+            f.write("\n".join(written) + "\n")
+    except OSError:
+        pass
+    return 1 if failures else 0
+
+
+def unregister():
+    """Remove every manifest --register wrote, plus any other copy of ours a browser folder still has."""
+    listed = []
+    try:
+        listed = open(os.path.join(os.path.dirname(os.path.realpath(__file__)), REGISTERED_LIST), encoding="utf-8").read().split("\n")
+    except OSError:
+        pass
+    candidates = set(filter(None, listed)) | {os.path.join(d, "NativeMessagingHosts", f"{HOST_NAME}.json") for d in browser_dirs()}
+    for path in sorted(candidates):
+        try:
+            os.remove(path)
+            print(f"removed: {path}")
+        except OSError:
+            pass
+    return 0
+
+
 def manifest_for(path):
     return {"name": HOST_NAME, "description": "Diagonal: names tab groups with Apple's on-device model",
             "path": os.path.abspath(path), "type": "stdio", "allowed_origins": [ALLOWED_ORIGIN]}
@@ -464,6 +582,10 @@ def main(argv=None):
         return selftest()
     if argv and argv[0] == "--install-schemas":
         return install_schemas()
+    if argv and argv[0] == "--register":
+        return register(argv[1] if len(argv) > 1 else sys.argv[0])
+    if argv and argv[0] == "--unregister":
+        return unregister()
     if argv and argv[0] == "--print-manifest":
         print(json.dumps(manifest_for(argv[1] if len(argv) > 1 else os.path.realpath(__file__)), indent=2))
         return 0

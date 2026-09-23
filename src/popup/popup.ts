@@ -5,6 +5,7 @@ let windowId: number | undefined;
 
 interface Status {
   health: "ok" | "unknown" | "degraded";
+  groupsSupported: boolean;
   message: string;
   lastError?: { code: string; message: string };
   lastPing?: { fmAvailable: boolean; schemasOk: boolean };
@@ -45,6 +46,7 @@ function renderStatus(s: Status): void {
   const notice = $("notice");
   notice.replaceChildren();
   const lines: (string | Node)[] = [];
+  if (!s.groupsSupported) lines.push("This browser doesn't let extensions manage tab groups, so Diagonal can't group tabs here.");
   if (s.message) lines.push(s.message);
   if (s.timeoutHint) lines.push("Three timeouts in a row: consider raising the timeout in Settings.");
   if (s.lastError?.code === "HOST_NOT_FOUND") {

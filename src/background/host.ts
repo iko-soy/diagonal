@@ -2,7 +2,8 @@ import type { HostError, HostErrorCode } from "./state";
 
 /** Section 8's wire protocol, from the extension's side. One `sendNativeMessage` per request. */
 export const HOST_NAME = "io.diagonal.host";
-export const HOST_MANIFEST_DIR = "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/";
+/** Each Chromium browser reads its own folder, e.g. Google/Chrome, BraveSoftware/Brave-Origin, Microsoft Edge. */
+export const HOST_MANIFEST_DIR = "~/Library/Application Support/<browser>/NativeMessagingHosts/";
 export const HOST_MANIFEST_PATH = `${HOST_MANIFEST_DIR}${HOST_NAME}.json`;
 
 export type Op = "ping" | "name" | "organize";
@@ -111,7 +112,7 @@ export function explain(error: HostError | undefined, extensionId = ""): string 
   if (!error) return "";
   switch (error.code) {
     case "HOST_NOT_FOUND":
-      return `Native host not installed (no manifest at ${HOST_MANIFEST_PATH}). Installed with Homebrew? Run: brew reinstall diagonal. Otherwise run: bash <the Diagonal folder>/install-host.command`;
+      return `Native host not installed for this browser (no manifest at ${HOST_MANIFEST_PATH}). Installed with Homebrew? Run: brew reinstall diagonal. Otherwise run: bash <the Diagonal folder>/install-host.command. Either one registers the host with every Chromium browser on this Mac.`;
     case "HOST_FORBIDDEN":
     case "FORBIDDEN_ORIGIN":
       return `The host does not allow this extension. Its manifest needs "allowed_origins": ["chrome-extension://${extensionId}/"]`;

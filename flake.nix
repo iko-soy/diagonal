@@ -63,26 +63,27 @@
         in
         {
           options.programs.diagonal = {
-            enable = lib.mkEnableOption "the Diagonal native messaging host for Brave";
+            enable = lib.mkEnableOption "the Diagonal native messaging host for Chromium browsers";
             extensionId = lib.mkOption {
               type = lib.types.str;
               default = extensionId;
               description = "Pinned extension ID (from scripts/gen-key.sh). The host itself checks the ID baked into host/diagonal-host.py, so change both together by re-running gen-key.sh.";
             };
-            channels = lib.mkOption {
-              type = lib.types.listOf (lib.types.enum [ "Brave-Browser" "Brave-Browser-Beta" "Brave-Browser-Nightly" ]);
-              default = [ "Brave-Browser" ];
-              description = "Brave channels to install the host manifest for.";
+            browsers = lib.mkOption {
+              type = lib.types.listOf lib.types.str;
+              default = [ "BraveSoftware/Brave-Browser" ];
+              example = [ "BraveSoftware/Brave-Origin" "Google/Chrome" "Microsoft Edge" "Arc/User Data" ];
+              description = "Browser profile folders under ~/Library/Application Support to install the host manifest into.";
             };
           };
 
           config = lib.mkIf cfg.enable {
             home.packages = [ host ];
             home.file = lib.listToAttrs (map
-              (ch: lib.nameValuePair
-                "Library/Application Support/BraveSoftware/${ch}/NativeMessagingHosts/io.diagonal.host.json"
+              (dir: lib.nameValuePair
+                "Library/Application Support/${dir}/NativeMessagingHosts/io.diagonal.host.json"
                 { text = builtins.toJSON manifest; })
-              cfg.channels);
+              cfg.browsers);
             # `|| true`: a Mac without Apple Intelligence still activates.
             home.activation.diagonalSchemas = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
               ${host}/bin/diagonal-host --install-schemas || true

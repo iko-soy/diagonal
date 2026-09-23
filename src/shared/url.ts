@@ -1,6 +1,6 @@
 import { colorForKey, type GroupColor } from "./colors";
 
-const INTERNAL_PREFIXES = ["brave:", "chrome:", "chrome-extension:", "chrome-search:", "chrome-untrusted:", "devtools:", "edge:", "file:", "about:", "view-source:", "data:", "javascript:", "blob:"];
+const INTERNAL_PREFIXES = ["brave:", "chrome:", "chrome-extension:", "chrome-search:", "chrome-untrusted:", "devtools:", "edge:", "vivaldi:", "opera:", "file:", "about:", "view-source:", "data:", "javascript:", "blob:"];
 
 /** True for pages that never feed grouping data or prompts (section 11). */
 export function isInternalUrl(url: string | undefined): boolean {

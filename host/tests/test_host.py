@@ -2,10 +2,13 @@ import io
 import json
 import os
 import re
+import shutil
 import struct
+import subprocess
+import sys
 import unittest
 
-from support import HOST_DIR, ITEMS3, HostCase, frame, host, unframe
+from support import HOST_DIR, HOST_SCRIPT, ITEMS3, HostCase, frame, host, unframe
 
 
 class Framing(HostCase):
@@ -285,6 +288,61 @@ class InstallSchemas(HostCase):
         self.assertNotIn("unsupported", err)
         self.assertEqual(os.listdir(os.path.join(self.support, "schemas")), [])
         self.assertEqual(len(self.argv_log()), 1)  # stopped after the first refusal
+
+
+class Register(HostCase):
+    def make_profile(self, rel, browsing=True):
+        d = os.path.join(self.tmp, "appsupport", rel)
+        os.makedirs(os.path.join(d, "Default"))
+        open(os.path.join(d, "Local State"), "w").write("{}")
+        if browsing:
+            open(os.path.join(d, "Default", "History"), "w").write("")
+        return d
+
+    def setUp(self):
+        super().setUp()
+        self.env["DIAGONAL_APP_SUPPORT"] = os.path.join(self.tmp, "appsupport")
+        self.host_copy = os.path.join(self.tmp, "bin", "diagonal-host.py")
+        os.makedirs(os.path.dirname(self.host_copy))
+        shutil.copy(HOST_SCRIPT, self.host_copy)
+        for f in ("prompts.py", "validate.py", "emoji.txt"):
+            shutil.copy(os.path.join(HOST_DIR, f), os.path.dirname(self.host_copy))
+
+    def run_copy(self, *args):
+        return subprocess.run([sys.executable, self.host_copy, *args], capture_output=True, text=True, env=self.env, timeout=30)
+
+    def test_registers_with_every_chromium_browser_and_only_those(self):
+        origin = self.make_profile("BraveSoftware/Brave-Origin")
+        chrome = self.make_profile("Google/Chrome")
+        arc = self.make_profile("Arc/User Data")
+        unknown = self.make_profile("SomeVendor/NewBrowser")
+        electron = self.make_profile("Slack", browsing=False)
+        p = self.run_copy("--register", self.host_copy)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        for d in (origin, chrome, arc, unknown):
+            m = json.load(open(os.path.join(d, "NativeMessagingHosts", "io.diagonal.host.json")))
+            self.assertEqual(m["path"], self.host_copy)
+            self.assertEqual(m["allowed_origins"], [host.ALLOWED_ORIGIN])
+        self.assertFalse(os.path.exists(os.path.join(electron, "NativeMessagingHosts")))
+        self.assertIn("registered: BraveSoftware/Brave-Origin", p.stdout)
+
+        p = self.run_copy("--unregister")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        for d in (origin, chrome, arc, unknown):
+            self.assertFalse(os.path.exists(os.path.join(d, "NativeMessagingHosts", "io.diagonal.host.json")))
+
+    def test_names_a_host_that_cannot_run(self):
+        self.make_profile("Google/Chrome")
+        os.chmod(self.host_copy, 0o644)
+        p = self.run_copy("--register", self.host_copy)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("missing or not executable", p.stderr)
+
+    def test_no_browser_found(self):
+        os.makedirs(self.env["DIAGONAL_APP_SUPPORT"])
+        p = self.run_copy("--register", self.host_copy)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("No Chromium browser found", p.stderr)
 
 
 class SelfTest(HostCase):

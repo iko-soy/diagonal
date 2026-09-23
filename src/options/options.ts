@@ -125,7 +125,8 @@ async function main(): Promise<void> {
   settings = withDefaults((await chrome.storage.local.get("settings")).settings);
   renderSettings();
   const id = chrome.runtime.id;
-  const path = "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/io.diagonal.host.json";
+  // Each Chromium browser has its own folder: Google/Chrome, BraveSoftware/Brave-Browser, BraveSoftware/Brave-Origin, …
+  const path = "~/Library/Application Support/<browser>/NativeMessagingHosts/io.diagonal.host.json";
   const manifest = JSON.stringify({
     name: "io.diagonal.host",
     description: "Diagonal: names tab groups with Apple's on-device model",

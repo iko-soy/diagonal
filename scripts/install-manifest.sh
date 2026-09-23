@@ -3,8 +3,8 @@
 #   scripts/install-manifest.sh [--beta] [--nightly] [--all-channels]
 # The release zip ships this same script as install-host.command next to host/ and extension-id,
 # so `bash install-host.command` works from the unzipped extension folder too.
-# Copies host/ to ~/.local/share/diagonal-host, links ~/.local/bin/diagonal-host to it, writes the Brave
-# host manifest with that absolute path and the pinned extension ID, then installs the fm schemas
+# Copies host/ to ~/.local/share/diagonal-host, links ~/.local/bin/diagonal-host to it, registers the host
+# (absolute path, pinned extension ID) with every Chromium browser on this Mac, then installs the fm schemas
 # and runs the self-test. Safe to re-run.
 set -euo pipefail
 # Keep a copy of this run's output for diagnosis (brew's own output scrolls away).
@@ -17,21 +17,12 @@ trap 'echo "Diagonal host install failed at line $LINENO: $BASH_COMMAND" >&2' ER
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [[ -d "$HERE/host" ]]; then cd "$HERE"; else cd "$HERE/.."; fi
 
-CHANNELS=("Brave-Browser")
+# (--beta, --nightly and --all-channels are accepted for old scripts; every browser is registered now.)
 for arg in "$@"; do
   case "$arg" in
-    --beta) CHANNELS+=("Brave-Browser-Beta") ;;
-    --nightly) CHANNELS+=("Brave-Browser-Nightly") ;;
-    --all-channels) CHANNELS=("Brave-Browser" "Brave-Browser-Beta" "Brave-Browser-Nightly") ;;
+    --beta|--nightly|--all-channels) ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
-done
-# Also register with every other Brave channel that has been run on this Mac (Beta, Nightly),
-# since each one reads host manifests from its own folder.
-for ch in Brave-Browser-Beta Brave-Browser-Nightly; do
-  if [[ -d "$HOME/Library/Application Support/BraveSoftware/$ch" && " ${CHANNELS[*]} " != *" $ch "* ]]; then
-    CHANNELS+=("$ch")
-  fi
 done
 
 ID=$(tr -d '[:space:]' < extension-id 2>/dev/null || true)
@@ -59,47 +50,10 @@ xattr -dr com.apple.quarantine "$SHARE" 2>/dev/null || true
 ln -sf "$SHARE/diagonal-host.py" "$BIN"
 echo "host:     $BIN -> $SHARE/diagonal-host.py"
 
-# Written here rather than by the host, so a python3 problem cannot leave an empty manifest behind,
-# and moved into place so Brave never reads a half-written one.
-MANIFEST=$(cat <<JSON
-{
-  "name": "io.diagonal.host",
-  "description": "Diagonal: names tab groups with Apple's on-device model",
-  "path": "$BIN",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://$ID/"]
-}
-JSON
-)
 "$BIN" --version >/dev/null  # the host must start with the python3 it was pinned to
-for ch in "${CHANNELS[@]}"; do
-  DIR="$HOME/Library/Application Support/BraveSoftware/$ch/NativeMessagingHosts"
-  mkdir -p "$DIR"
-  printf '%s\n' "$MANIFEST" > "$DIR/io.diagonal.host.json.tmp"
-  mv -f "$DIR/io.diagonal.host.json.tmp" "$DIR/io.diagonal.host.json"
-  echo "manifest: $DIR/io.diagonal.host.json"
-done
-
-# Check what Brave will check, so a problem is named here instead of as "host not found" later.
-for ch in "${CHANNELS[@]}"; do
-  "$PYTHON" - "$HOME/Library/Application Support/BraveSoftware/$ch/NativeMessagingHosts/io.diagonal.host.json" "$ID" <<'PY'
-import json, os, sys
-path, ext_id = sys.argv[1], sys.argv[2]
-m = json.load(open(path))
-problems = []
-if m.get("name") != "io.diagonal.host":
-    problems.append(f"name is {m.get('name')!r}")
-host = m.get("path", "")
-if not os.path.isabs(host):
-    problems.append(f"path {host!r} is not absolute")
-elif not os.access(host, os.X_OK):
-    problems.append(f"host {host} is missing or not executable")
-if m.get("allowed_origins") != [f"chrome-extension://{ext_id}/"]:
-    problems.append(f"allowed_origins is {m.get('allowed_origins')}")
-if problems:
-    sys.exit("manifest check failed for " + path + ": " + "; ".join(problems))
-PY
-done
+# Writes the manifest into every Chromium browser's NativeMessagingHosts folder (Chrome, Brave and
+# Brave Origin, Edge, Vivaldi, Arc, Opera, …) and checks each one the way the browser reads it.
+"$BIN" --register "$BIN"
 
 FM="${DIAGONAL_FM:-/usr/bin/fm}"
 

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""grove-host: Brave native-messaging host that calls /usr/bin/fm once and exits.
+"""diagonal-host: Brave native-messaging host that calls /usr/bin/fm once and exits.
 
 Protocol (section 8): Brave starts this process with the caller's origin as argv[1], writes one
 length-prefixed JSON request to stdin, and reads one length-prefixed JSON reply from stdout.
 Standard library only; no network imports.
 
 Other entry points:
-  grove-host --selftest          check fm, the model, the schemas, and one fixture naming call
-  grove-host --install-schemas   write the fm schema files to ~/Library/Application Support/Grove/schemas
-  grove-host --print-manifest P  print the host manifest JSON for executable path P
-  grove-host --version
+  diagonal-host --selftest          check fm, the model, the schemas, and one fixture naming call
+  diagonal-host --install-schemas   write the fm schema files to ~/Library/Application Support/Diagonal/schemas
+  diagonal-host --print-manifest P  print the host manifest JSON for executable path P
+  diagonal-host --version
 """
 import json
 import os
@@ -24,12 +24,12 @@ import prompts  # noqa: E402
 import validate  # noqa: E402
 
 HOST_VERSION = "0.1.0"
-HOST_NAME = "io.grove.host"
+HOST_NAME = "io.diagonal.host"
 ALLOWED_ORIGIN = "chrome-extension://mpnodlalikgeehnlnofdkpgapkmbkjdf/"
-FM = os.environ.get("GROVE_FM", "/usr/bin/fm")  # tests point this at host/tests/fake_fm.py
-SUPPORT = os.environ.get("GROVE_SUPPORT_DIR", os.path.expanduser("~/Library/Application Support/Grove"))
+FM = os.environ.get("DIAGONAL_FM", "/usr/bin/fm")  # tests point this at host/tests/fake_fm.py
+SUPPORT = os.environ.get("DIAGONAL_SUPPORT_DIR", os.path.expanduser("~/Library/Application Support/Diagonal"))
 SCHEMAS = os.path.join(SUPPORT, "schemas")
-LOG_DIR = os.environ.get("GROVE_LOG_DIR", os.path.expanduser("~/Library/Logs/Grove"))
+LOG_DIR = os.environ.get("DIAGONAL_LOG_DIR", os.path.expanduser("~/Library/Logs/Diagonal"))
 LOG_MAX_BYTES = 5 * 1024 * 1024
 CHAR_BUDGET = 10_000  # ≈ 2,850 tokens of prompt at 3.5 chars/token (section 9); double once 8,192 is confirmed
 MAX_REQUEST = 64 * 1024 * 1024
@@ -378,7 +378,7 @@ def selftest():
     for name in ["name.json", *(["organize.json"] if organize_mode() == "nested" else list(FALLBACK_SCHEMA_COMMANDS))]:
         path = os.path.join(SCHEMAS, name)
         readable = os.path.isfile(path) and os.path.getsize(path) > 0
-        check(f"schema {name}", readable, path if readable else "missing: run grove-host --install-schemas")
+        check(f"schema {name}", readable, path if readable else "missing: run diagonal-host --install-schemas")
     check("allowed origin pinned", "<" not in ALLOWED_ORIGIN, ALLOWED_ORIGIN)
     if ping["fmAvailable"] and schema_path("name.json"):
         reply = handle({"v": 1, "id": "selftest", "op": "name", "payload": json.loads(json.dumps(FIXTURE)), "opts": {"timeoutMs": 45000}})
@@ -390,7 +390,7 @@ def selftest():
 
 
 def manifest_for(path):
-    return {"name": HOST_NAME, "description": "Grove: names tab groups with Apple's on-device model",
+    return {"name": HOST_NAME, "description": "Diagonal: names tab groups with Apple's on-device model",
             "path": os.path.abspath(path), "type": "stdio", "allowed_origins": [ALLOWED_ORIGIN]}
 
 

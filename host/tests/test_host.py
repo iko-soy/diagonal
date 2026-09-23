@@ -72,7 +72,7 @@ class Ping(HostCase):
         self.assertIn("Apple Intelligence", r["result"]["fmMessage"])
 
     def test_ping_without_fm(self):
-        self.env["GROVE_FM"] = os.path.join(self.tmp, "missing-fm")
+        self.env["DIAGONAL_FM"] = os.path.join(self.tmp, "missing-fm")
         r = self.call("ping")
         self.assertFalse(r["result"]["fmAvailable"])
         self.assertIn("requires macOS 27", r["result"]["fmMessage"])
@@ -127,7 +127,7 @@ class ErrorCodes(HostCase):
         self.expect("MODEL_UNAVAILABLE", stderr="Error: The model is not available. Enable Apple Intelligence.", exit=1)
 
     def test_fm_missing(self):
-        self.env["GROVE_FM"] = os.path.join(self.tmp, "nope")
+        self.env["DIAGONAL_FM"] = os.path.join(self.tmp, "nope")
         r = self.call("name", {"items": ITEMS3})
         self.assertEqual(r["error"]["code"], "MODEL_UNAVAILABLE")
         self.assertIn("requires macOS 27", r["error"]["message"])
@@ -251,10 +251,10 @@ class SelfTest(HostCase):
         self.assertIn("FAIL model available", p.stdout.decode())
 
     def test_print_manifest(self):
-        code, _, p = self.run_host(args=["--print-manifest", "/Users/me/.local/bin/grove-host"])
+        code, _, p = self.run_host(args=["--print-manifest", "/Users/me/.local/bin/diagonal-host"])
         m = json.loads(p.stdout)
-        self.assertEqual(m["name"], "io.grove.host")
-        self.assertEqual(m["path"], "/Users/me/.local/bin/grove-host")
+        self.assertEqual(m["name"], "io.diagonal.host")
+        self.assertEqual(m["path"], "/Users/me/.local/bin/diagonal-host")
         self.assertEqual(m["allowed_origins"], [host.ALLOWED_ORIGIN])
 
 
@@ -273,7 +273,7 @@ class Logging(HostCase):
 class Privacy(unittest.TestCase):
     def test_no_network_imports(self):
         banned = re.compile(r"^\s*(import|from)\s+(socket|ssl|http|urllib\.request|urllib3|requests|ftplib|smtplib|asyncio|xmlrpc)\b", re.M)
-        for name in ("grove-host.py", "prompts.py", "validate.py"):
+        for name in ("diagonal-host.py", "prompts.py", "validate.py"):
             src = open(os.path.join(HOST_DIR, name), encoding="utf-8").read()
             self.assertIsNone(banned.search(src), name)
 

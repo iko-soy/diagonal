@@ -1,5 +1,5 @@
 {
-  "name": "grove-extension",
+  "name": "diagonal-extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:host": "cd host && python3 -m unittest discover -s tests -v",
     "gen-emoji": "node scripts/gen-emoji.mjs",
-    "zip": "node scripts/build.mjs && cd dist && zip -qr ../grove-extension.zip .",
+    "zip": "node scripts/build.mjs && cd dist && zip -qr ../diagonal-extension.zip .",
     "smoke": "node scripts/build.mjs && node test/e2e/smoke.mjs",
     "icons": "node scripts/render-icons.mjs",
     "check": "tsc --noEmit && vitest run && cd host && python3 -m unittest discover -s tests"

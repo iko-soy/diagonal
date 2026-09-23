@@ -1,7 +1,7 @@
 import type { HostError, HostErrorCode } from "./state";
 
 /** Section 8's wire protocol, from the extension's side. One `sendNativeMessage` per request. */
-export const HOST_NAME = "io.grove.host";
+export const HOST_NAME = "io.diagonal.host";
 export const HOST_MANIFEST_DIR = "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/";
 export const HOST_MANIFEST_PATH = `${HOST_MANIFEST_DIR}${HOST_NAME}.json`;
 
@@ -65,13 +65,13 @@ export async function callHost<T>(
     const reply = await Promise.race([
       send(HOST_NAME, request),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("__grove_timeout__")), guardMs);
+        timer = setTimeout(() => reject(new Error("__diagonal_timeout__")), guardMs);
       }),
     ]);
     return normalizeReply<T>(reply, now());
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (message === "__grove_timeout__") {
+    if (message === "__diagonal_timeout__") {
       return { ok: false, error: { code: "TIMEOUT", message: `no reply from host in ${guardMs} ms`, retryable: true, at: now() } };
     }
     return { ok: false, error: { ...mapLastError(message), at: now() } };
@@ -116,7 +116,7 @@ export function explain(error: HostError | undefined, extensionId = ""): string 
     case "FORBIDDEN_ORIGIN":
       return `The host does not allow this extension. Its manifest needs "allowed_origins": ["chrome-extension://${extensionId}/"]`;
     case "SCHEMA_MISSING":
-      return "Schemas missing. Run: grove-host --install-schemas";
+      return "Schemas missing. Run: diagonal-host --install-schemas";
     case "MODEL_UNAVAILABLE":
       return `On-device model unavailable: ${error.message}. Check System Settings → Apple Intelligence & Siri.`;
     case "RATE_LIMITED":

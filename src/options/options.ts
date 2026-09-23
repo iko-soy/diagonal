@@ -36,7 +36,7 @@ const SECTIONS: [string, Field[]][] = [
     { key: "archiveCap", label: "Keep at most", kind: "number", min: 50, max: 5000, unit: "archived tabs" },
   ]],
   ["Diagnostics", [
-    { key: "debugLog", label: "Debug logging", help: "Worker logs to the console; the host logs to ~/Library/Logs/Grove/host.log when ~/Library/Application Support/Grove/debug exists.", kind: "bool" },
+    { key: "debugLog", label: "Debug logging", help: "Worker logs to the console; the host logs to ~/Library/Logs/Diagonal/host.log when ~/Library/Application Support/Diagonal/debug exists.", kind: "bool" },
   ]],
 ];
 
@@ -123,11 +123,11 @@ async function main(): Promise<void> {
   settings = withDefaults((await chrome.storage.local.get("settings")).settings);
   renderSettings();
   const id = chrome.runtime.id;
-  const path = "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/io.grove.host.json";
+  const path = "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/io.diagonal.host.json";
   const manifest = JSON.stringify({
-    name: "io.grove.host",
-    description: "Grove: names tab groups with Apple's on-device model",
-    path: "/Users/<you>/.local/bin/grove-host",
+    name: "io.diagonal.host",
+    description: "Diagonal: names tab groups with Apple's on-device model",
+    path: "/Users/<you>/.local/bin/diagonal-host",
     type: "stdio",
     allowed_origins: [`chrome-extension://${id}/`],
   }, null, 2);
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
   $("export").onclick = async () => {
     const archive = await send("exportArchive");
     const blob = new Blob([JSON.stringify(archive, null, 2)], { type: "application/json" });
-    const a = el("a", { href: URL.createObjectURL(blob), download: `grove-archive-${new Date().toISOString().slice(0, 10)}.json` });
+    const a = el("a", { href: URL.createObjectURL(blob), download: `diagonal-archive-${new Date().toISOString().slice(0, 10)}.json` });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };

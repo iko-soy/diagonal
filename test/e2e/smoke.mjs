@@ -1,4 +1,4 @@
-// End-to-end smoke test: loads dist/ into Chromium with the real native host (host/grove-host.py)
+// End-to-end smoke test: loads dist/ into Chromium with the real native host (host/diagonal-host.py)
 // wired to a keyword-driven fake fm, then drives opener grouping, naming, a user rename, dissolve,
 // Organize and the popup. Linux only (native host manifests live under the profile directory).
 //   node test/e2e/smoke.mjs      (after npm run build)
@@ -13,7 +13,7 @@ import { execFileSync } from "node:child_process";
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const dist = join(root, "dist");
 const extId = readFileSync(join(root, "extension-id"), "utf8").trim();
-const tmp = mkdtempSync(join(tmpdir(), "grove-smoke-"));
+const tmp = mkdtempSync(join(tmpdir(), "diagonal-smoke-"));
 const python = execFileSync("python3", ["-c", "import sys; print(sys.executable)"]).toString().trim();
 const shotDir = process.env.SMOKE_SHOTS || join(tmp, "shots");
 mkdirSync(shotDir, { recursive: true });
@@ -22,20 +22,20 @@ mkdirSync(shotDir, { recursive: true });
 const hostDir = join(tmp, "host");
 mkdirSync(hostDir);
 for (const f of ["prompts.py", "validate.py", "emoji.txt"]) cpSync(join(root, "host", f), join(hostDir, f));
-writeFileSync(join(hostDir, "grove-host.py"), readFileSync(join(root, "host/grove-host.py"), "utf8").replace(/^#!.*$/m, `#!${python}`));
-chmodSync(join(hostDir, "grove-host.py"), 0o755);
+writeFileSync(join(hostDir, "diagonal-host.py"), readFileSync(join(root, "host/diagonal-host.py"), "utf8").replace(/^#!.*$/m, `#!${python}`));
+chmodSync(join(hostDir, "diagonal-host.py"), 0o755);
 const fm = join(tmp, "fm");
 writeFileSync(fm, `#!${python}\n` + readFileSync(join(root, "test/e2e/smoke-fm.py"), "utf8"));
 chmodSync(fm, 0o755);
 const support = join(tmp, "support");
 const profile = join(tmp, "profile");
-const manifest = JSON.stringify({ name: "io.grove.host", description: "Grove smoke", path: join(hostDir, "grove-host.py"), type: "stdio", allowed_origins: [`chrome-extension://${extId}/`] });
+const manifest = JSON.stringify({ name: "io.diagonal.host", description: "Diagonal smoke", path: join(hostDir, "diagonal-host.py"), type: "stdio", allowed_origins: [`chrome-extension://${extId}/`] });
 for (const dir of [join(profile, "NativeMessagingHosts"), join(tmp, "home/.config/chromium/NativeMessagingHosts")]) {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "io.grove.host.json"), manifest);
+  writeFileSync(join(dir, "io.diagonal.host.json"), manifest);
 }
-const env = { ...process.env, GROVE_FM: fm, GROVE_SUPPORT_DIR: support, HOME: join(tmp, "home") };
-execFileSync(join(hostDir, "grove-host.py"), ["--install-schemas"], { env, stdio: "inherit" });
+const env = { ...process.env, DIAGONAL_FM: fm, DIAGONAL_SUPPORT_DIR: support, HOME: join(tmp, "home") };
+execFileSync(join(hostDir, "diagonal-host.py"), ["--install-schemas"], { env, stdio: "inherit" });
 
 // A tiny site with meta descriptions.
 const pages = {
@@ -175,8 +175,8 @@ try {
   await options.screenshot({ path: join(shotDir, "options.png"), fullPage: true });
 
   // 7. Host missing → HOST_NOT_FOUND surfaced.
-  writeFileSync(join(profile, "NativeMessagingHosts/io.grove.host.json"), "{}");
-  writeFileSync(join(tmp, "home/.config/chromium/NativeMessagingHosts/io.grove.host.json"), "{}");
+  writeFileSync(join(profile, "NativeMessagingHosts/io.diagonal.host.json"), "{}");
+  writeFileSync(join(tmp, "home/.config/chromium/NativeMessagingHosts/io.diagonal.host.json"), "{}");
   const bad = await popup.evaluate(async () => chrome.runtime.sendMessage({ cmd: "ping" }));
   check("a broken host manifest is reported, not swallowed", bad?.result?.ok === false && /HOST_/.test(bad.result.error.code), JSON.stringify(bad?.result?.error));
 } finally {

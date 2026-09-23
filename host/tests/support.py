@@ -10,12 +10,12 @@ import tempfile
 import unittest
 
 HOST_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-HOST_SCRIPT = os.path.join(HOST_DIR, "grove-host.py")
+HOST_SCRIPT = os.path.join(HOST_DIR, "diagonal-host.py")
 sys.path.insert(0, HOST_DIR)
 
 
 def load_host():
-    spec = importlib.util.spec_from_file_location("grove_host", HOST_SCRIPT)
+    spec = importlib.util.spec_from_file_location("diagonal_host", HOST_SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -51,7 +51,7 @@ class HostCase(unittest.TestCase):
     """Each test gets a fresh temp dir with a fake fm and installed schemas."""
 
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="grove-host-test-")
+        self.tmp = tempfile.mkdtemp(prefix="diagonal-host-test-")
         self.fm = os.path.join(self.tmp, "fm")
         with open(os.path.join(HOST_DIR, "tests", "fake_fm.py"), encoding="utf-8") as f:
             body = f.read()
@@ -64,8 +64,8 @@ class HostCase(unittest.TestCase):
             with open(os.path.join(self.support, "schemas", name), "w") as f:
                 f.write("{}")
         self.control({})
-        self.env = {**os.environ, "GROVE_FM": self.fm, "GROVE_SUPPORT_DIR": self.support,
-                    "GROVE_LOG_DIR": os.path.join(self.tmp, "logs"), "HOME": self.tmp}
+        self.env = {**os.environ, "DIAGONAL_FM": self.fm, "DIAGONAL_SUPPORT_DIR": self.support,
+                    "DIAGONAL_LOG_DIR": os.path.join(self.tmp, "logs"), "HOME": self.tmp}
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)

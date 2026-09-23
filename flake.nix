@@ -1,5 +1,5 @@
 {
-  description = "Grove: Dia-style tab groups for Brave, named by Apple's on-device model";
+  description = "Diagonal: Dia-style tab groups for Brave, named by Apple's on-device model";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -13,7 +13,7 @@
       packages = forAll (pkgs: rec {
         # The unpacked extension (dist/). Load it from brave://extensions → Load unpacked.
         extension = pkgs.buildNpmPackage {
-          pname = "grove-extension";
+          pname = "diagonal-extension";
           version = "0.1.0";
           src = ./.;
           npmDeps = pkgs.importNpmLock { npmRoot = ./.; };
@@ -23,24 +23,24 @@
         };
 
         # The native host: host/ copied whole, the shebang pinned to Nix's python3.
-        grove-host = pkgs.stdenvNoCC.mkDerivation {
-          pname = "grove-host";
+        diagonal-host = pkgs.stdenvNoCC.mkDerivation {
+          pname = "diagonal-host";
           version = "0.1.0";
           src = ./host;
           dontBuild = true;
           installPhase = ''
-            mkdir -p $out/libexec/grove-host $out/bin
-            cp grove-host.py prompts.py validate.py emoji.txt $out/libexec/grove-host/
-            substituteInPlace $out/libexec/grove-host/grove-host.py \
+            mkdir -p $out/libexec/diagonal-host $out/bin
+            cp diagonal-host.py prompts.py validate.py emoji.txt $out/libexec/diagonal-host/
+            substituteInPlace $out/libexec/diagonal-host/diagonal-host.py \
               --replace-fail "#!/usr/bin/env python3" "#!${pkgs.python3}/bin/python3"
-            chmod +x $out/libexec/grove-host/grove-host.py
-            ln -s $out/libexec/grove-host/grove-host.py $out/bin/grove-host
+            chmod +x $out/libexec/diagonal-host/diagonal-host.py
+            ln -s $out/libexec/diagonal-host/diagonal-host.py $out/bin/diagonal-host
           '';
           doInstallCheck = true;
-          installCheckPhase = "$out/bin/grove-host --version";
+          installCheckPhase = "$out/bin/diagonal-host --version";
         };
 
-        default = grove-host;
+        default = diagonal-host;
       });
 
       devShells = forAll (pkgs: {
@@ -51,23 +51,23 @@
 
       homeManagerModules.default = { config, pkgs, lib, ... }:
         let
-          cfg = config.programs.grove;
-          host = self.packages.${pkgs.stdenv.hostPlatform.system}.grove-host;
+          cfg = config.programs.diagonal;
+          host = self.packages.${pkgs.stdenv.hostPlatform.system}.diagonal-host;
           manifest = {
-            name = "io.grove.host";
-            description = "Grove: names tab groups with Apple's on-device model";
-            path = "${host}/bin/grove-host";
+            name = "io.diagonal.host";
+            description = "Diagonal: names tab groups with Apple's on-device model";
+            path = "${host}/bin/diagonal-host";
             type = "stdio";
             allowed_origins = [ "chrome-extension://${cfg.extensionId}/" ];
           };
         in
         {
-          options.programs.grove = {
-            enable = lib.mkEnableOption "the Grove native messaging host for Brave";
+          options.programs.diagonal = {
+            enable = lib.mkEnableOption "the Diagonal native messaging host for Brave";
             extensionId = lib.mkOption {
               type = lib.types.str;
               default = extensionId;
-              description = "Pinned extension ID (from scripts/gen-key.sh). The host itself checks the ID baked into host/grove-host.py, so change both together by re-running gen-key.sh.";
+              description = "Pinned extension ID (from scripts/gen-key.sh). The host itself checks the ID baked into host/diagonal-host.py, so change both together by re-running gen-key.sh.";
             };
             channels = lib.mkOption {
               type = lib.types.listOf (lib.types.enum [ "Brave-Browser" "Brave-Browser-Beta" "Brave-Browser-Nightly" ]);
@@ -80,12 +80,12 @@
             home.packages = [ host ];
             home.file = lib.listToAttrs (map
               (ch: lib.nameValuePair
-                "Library/Application Support/BraveSoftware/${ch}/NativeMessagingHosts/io.grove.host.json"
+                "Library/Application Support/BraveSoftware/${ch}/NativeMessagingHosts/io.diagonal.host.json"
                 { text = builtins.toJSON manifest; })
               cfg.channels);
             # `|| true`: a Mac without Apple Intelligence still activates.
-            home.activation.groveSchemas = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-              ${host}/bin/grove-host --install-schemas || true
+            home.activation.diagonalSchemas = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+              ${host}/bin/diagonal-host --install-schemas || true
             '';
           };
         };

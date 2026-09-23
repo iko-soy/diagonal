@@ -35,7 +35,7 @@ function commit(): void {
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = undefined;
-    chrome.storage.local.set({ state }).catch((e) => console.error("[grove] save failed", e));
+    chrome.storage.local.set({ state }).catch((e) => console.error("[diagonal] save failed", e));
   }, 0);
 }
 
@@ -54,12 +54,12 @@ async function pushRing(key: string, entry: unknown, cap: number): Promise<void>
 
 function log(...args: unknown[]): void {
   if (!settings?.debugLog) return;
-  console.log("[grove]", ...args);
+  console.log("[diagonal]", ...args);
   void pushRing("debugLog", { at: Date.now(), msg: args.map((a) => (a instanceof Error ? a.message : typeof a === "string" ? a : JSON.stringify(a))).join(" ") }, 200);
 }
 
 function logError(where: string, e: unknown): void {
-  console.error(`[grove] ${where}`, e);
+  console.error(`[diagonal] ${where}`, e);
   if (settings?.debugLog) void pushRing("debugLog", { at: Date.now(), msg: `${where}: ${e instanceof Error ? e.message : String(e)}` }, 200);
 }
 

@@ -2,7 +2,7 @@ node_modules/
 dist/
 result
 key.pem
-grove-extension.zip
+diagonal-extension.zip
 host/tests/__pycache__/
 host/__pycache__/
 __pycache__/

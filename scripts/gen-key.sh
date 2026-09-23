@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pins the extension ID (section 14). Creates key.pem once (keep it out of the repo), writes the
-# public key into manifest.json, the ID into ./extension-id and into host/grove-host.py's
+# public key into manifest.json, the ID into ./extension-id and into host/diagonal-host.py's
 # ALLOWED_ORIGIN, and prints the ID. Re-running with an existing key.pem changes nothing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,7 +23,7 @@ m["key"] = key
 with open("manifest.json", "w", encoding="utf-8") as f:
     json.dump(m, f, indent=2, ensure_ascii=False)
     f.write("\n")
-p = "host/grove-host.py"
+p = "host/diagonal-host.py"
 s = open(p, encoding="utf-8").read()
 s = re.sub(r'^ALLOWED_ORIGIN = ".*"$', f'ALLOWED_ORIGIN = "chrome-extension://{ext_id}/"', s, count=1, flags=re.M)
 open(p, "w", encoding="utf-8").write(s)

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Grove",
+  "name": "Diagonal",
   "version": "0.1.0",
   "minimum_chrome_version": "121",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjQfra9g/ZwPFNa1EGvqo6GORMuLrj9Gk6/yonBCrF78qMk6Kb8S7inM5I0O+V+aaZ1DwI3IPAJTyTbvzcPR5xuaGzaDCBuwqb2uo3zyY8dKqK//s6SXbDVue/czTRXvEBrKx0G4Mo19VFmft2XcHqDdqRZH3eSagHLw2r+CNLAeyNJOQNN8/Dfdx56axtB++HwK+/D9fafFQUMsTOGIQ3atjkM9VCK7050CFTeoL2IpJPJuo5Mh4Rd+zOzMI6Q4mfb2mFgraRwMNevbYBRgWWn19UMkKIc1IkP17f6BDo/0NP7ehGxL/rUmB+pqNCAmWDxJyYLyER35y5Ap+5BLpcQIDAQAB",
@@ -35,7 +35,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Grove",
+    "default_title": "Diagonal",
     "default_icon": {
       "16": "icons/16.png",
       "32": "icons/32.png",

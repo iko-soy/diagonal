@@ -136,7 +136,7 @@ async function main(): Promise<void> {
     b.textContent = "Organizing…";
     const r = (await run("organize")) as { grouped: number; groups: number; left: number; error?: string } | undefined;
     b.disabled = false;
-    b.textContent = "Organize this window";
+    b.textContent = "Organize now";
     if (r) showResult(`${r.grouped} tabs grouped into ${r.groups} new group${r.groups === 1 ? "" : "s"}, ${r.left} left${r.error ? ` (stopped: ${r.error})` : ""}.`);
   };
   const tidy = async () => {

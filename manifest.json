@@ -49,24 +49,5 @@
     "48": "icons/48.png",
     "128": "icons/128.png"
   },
-  "options_page": "options.html",
-  "commands": {
-    "organize-window": {
-      "suggested_key": {
-        "default": "Alt+Shift+G",
-        "mac": "Alt+Shift+G"
-      },
-      "description": "Organize ungrouped tabs in this window"
-    },
-    "rename-current-group": {
-      "suggested_key": {
-        "default": "Alt+Shift+N",
-        "mac": "Alt+Shift+N"
-      },
-      "description": "Re-name the current tab group now"
-    },
-    "tidy-now": {
-      "description": "Run the tidy sweep now"
-    }
-  }
+  "options_page": "options.html"
 }

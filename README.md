@@ -2,12 +2,15 @@
 
 Dia-style tab groups for Brave on macOS, named by Apple's on-device model through the `fm` command-line tool over Chromium native messaging. No HTTP server, no cloud call, no model download.
 
-What it does (v1):
+You open and close tabs as usual. Diagonal does the rest on its own; there are no shortcuts and nothing to press.
 
-1. **Opener grouping.** Cmd-click a link from an ungrouped, unpinned tab and both tabs become a group, titled with the site's hostname until the model names it. An opener group that shrinks to one tab dissolves.
-2. **Naming loop.** Groups Diagonal made get an `emoji + 2–4 word` title from the model. The title is recomputed after 4 s of quiet when membership changes, stays put when the model only paraphrases, and is never touched again once you type a title yourself.
-3. **Organize this window** (toolbar or Alt+Shift+G). Clusters ungrouped tabs into topic groups in batches of 18. Undo is available for an hour.
-4. **Tidy sweep.** Tabs idle for 24 h move to a collapsed grey "Parked" group (Ask mode by default). After another 48 h they are archived and closed, with restore from the popup.
+1. **Opener grouping.** Cmd-click a link from an ungrouped, unpinned tab and both tabs become a group, titled with the site's hostname until the model names it.
+2. **Auto-organize.** Any other loose tab (typed address, bookmark, new window) is sorted once the window has been quiet for 8 s: it joins one of Diagonal's groups, pairs up with other loose tabs on the same topic, or stays loose if nothing fits. A loose tab is looked at again only when it goes to another page or a new tab arrives that it might pair with.
+3. **Naming loop.** Groups Diagonal made get an `emoji + 2–4 word` title from the model. The title is recomputed after 4 s of quiet when membership changes, stays put when the model only paraphrases, and is never touched again once you type a title yourself.
+4. **Dissolve.** A group Diagonal made that drops to one tab is ungrouped, unless you gave it a title.
+5. **Tidy.** Tabs idle for 24 h move to a collapsed grey "Parked" group at the end of the strip. Opening a parked tab takes it back out and auto-organize places it. After another 48 h in Parked, tabs are archived and closed, with restore from the popup.
+
+Your own choices win: a tab you take out of a group stays out until it goes to another page, groups you make yourself are left alone, and a title you type is kept. The popup still has **Organize now**, **Tidy now** and their undo, but none of them is needed.
 
 The model sees a tab's title, address and `<meta name="description">`, and nothing else.
 
@@ -57,16 +60,6 @@ programs.diagonal.enable = true;
 
 Open Diagonal's settings page and click **Run self-test**. Expect `fmAvailable: true`, `schemasOk: true` and a title for the three fixture tabs. From a terminal, `diagonal-host --selftest` runs the same checks.
 
-## Keyboard shortcuts
-
-| Command | Default |
-| --- | --- |
-| Organize this window | Alt+Shift+G |
-| Name the current group now | Alt+Shift+N |
-| Tidy now | unset |
-
-Change them at `brave://extensions/shortcuts`.
-
 ## Develop
 
 ```sh
@@ -94,7 +87,8 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 
 ## Where this differs from the spec, and why
 
-- **No "new tab in group" shortcut.** The spec's Alt+Cmd+T command was dropped: grouping happens on its own through opener grouping, naming and Organize.
+- **Fully automatic.** The spec's keyboard commands are gone (new tab in group, organize, rename, tidy now). Organize runs on its own for loose tabs, the tidy sweep parks without asking by default (Ask mode is still a setting), and topic groups dissolve at one tab like opener groups do.
+- **Model calls are one at a time.** Naming and auto-organize share a queue, so they never run the model in parallel.
 - **Query strings.** The spec keeps the query only when the path is empty, but also wants `youtube.com/watch?v=…` kept. Diagonal keeps the whole query when the path is empty and otherwise keeps only content keys (`v`, `q`, `query`, `search_query`, `search`, `s`, `k`, `id`, `p`, `list`, `page`), dropping `utm_*` and similar.
 - **Grey is reserved for the Parked group.** Site colours hash over the other eight colours.
 - **Organize only adds tabs to Diagonal's own groups,** not to groups you made by hand, unless "Name my own groups" is on.

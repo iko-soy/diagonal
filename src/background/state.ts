@@ -18,6 +18,8 @@ export interface TabRecord {
   createdAt: number;
   lastActivatedAt: number; // epoch ms
   parkedFrom?: string; // title of the group the tab was in before the tidy sweep parked it
+  keepLoose?: string; // the user took this tab out of a group on this page: auto-organize leaves it be
+  organizedKey?: string; // page + title when auto-organize last considered this tab
 }
 
 export interface GroupRecord {
@@ -113,6 +115,8 @@ export interface State {
   ownWrites: Record<number, { title?: string; color?: string; at: number }>;
   /** Groups the worker is about to create: onCreated within 2 s in that window is ours. */
   pendingCreates: { windowId: number; origin: GroupOrigin; at: number }[];
+  /** Tabs the worker itself is ungrouping (dissolve): leaving the group is not a user choice. */
+  ownUngroups: Record<number, number>;
   lastSweep?: { at: number; moves: SweepMove[] };
   lastOrganize?: { at: number; previous: Record<number, number> };
   tidyCandidates?: number;
@@ -126,6 +130,7 @@ export const emptyState = (): State => ({
   host: { consecutiveFailures: 0 },
   ownWrites: {},
   pendingCreates: [],
+  ownUngroups: {},
 });
 
 /** Accept whatever was stored and bring it to the current shape. */
@@ -145,6 +150,7 @@ export function migrate(raw: unknown): State {
     host: { consecutiveFailures: 0, ...(r.host ?? {}) },
     ownWrites: r.ownWrites ?? {},
     pendingCreates: r.pendingCreates ?? [],
+    ownUngroups: r.ownUngroups ?? {},
   };
 }
 

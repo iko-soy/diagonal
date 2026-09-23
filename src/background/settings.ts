@@ -5,6 +5,8 @@ export type ModelChoice = "system" | "pcc";
 export interface Settings {
   openerGrouping: boolean;
   dissolveSingletons: boolean;
+  autoOrganize: boolean;
+  autoOrganizeDelayMs: number;
   naming: boolean;
   nameUserGroups: boolean;
   emoji: boolean;
@@ -28,6 +30,8 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   openerGrouping: true,
   dissolveSingletons: true,
+  autoOrganize: true,
+  autoOrganizeDelayMs: 8000,
   naming: true,
   nameUserGroups: false,
   emoji: true,
@@ -37,7 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   model: "system",
   timeoutMs: 45000,
   organizeMinGroupSize: 2,
-  tidyMode: "ask",
+  tidyMode: "auto",
   parkAfterHours: 24,
   archiveAfterHours: 48,
   tidyThreshold: 10,
@@ -50,6 +54,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
   namingDebounceMs: [1000, 30000],
+  autoOrganizeDelayMs: [3000, 120000],
   timeoutMs: [5000, 120000],
   organizeMinGroupSize: [2, 5],
   parkAfterHours: [1, 720],

@@ -80,7 +80,7 @@ describe("settings", () => {
   it("fills defaults and clamps", () => {
     const s = withDefaults({ namingDebounceMs: 10, tidyMode: "weird", emoji: false, tidyExclusions: ["a", "", 3] });
     expect(s.namingDebounceMs).toBe(1000);
-    expect(s.tidyMode).toBe("ask");
+    expect(s.tidyMode).toBe("auto");
     expect(s.emoji).toBe(false);
     expect(s.tidyExclusions).toEqual(["a"]);
     expect(withDefaults(undefined).parkAfterHours).toBe(24);

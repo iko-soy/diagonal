@@ -13,10 +13,10 @@ describe("opener rule", () => {
     ]);
   });
 
-  it("Cmd-click from a pinned tab spawns a plain tab", () => {
+  it("Cmd-click from a pinned tab spawns a plain tab, left to auto-organize", () => {
     const opener = tab(1, { pinned: true });
     const { actions } = step(stateWith([opener]), { type: "tabCreated", tab: tab(2, { openerTabId: 1 }), opener }, ctx());
-    expect(actions).toEqual([]);
+    expect(actions).toEqual([{ type: "loose", windowId: 1 }]);
   });
 
   it("skips pinned, blank and internal children", () => {
@@ -44,7 +44,8 @@ describe("opener rule", () => {
 
   it("does nothing when opener grouping is off", () => {
     const opener = tab(1);
-    expect(step(stateWith([opener]), { type: "tabCreated", tab: tab(2, { openerTabId: 1 }), opener }, ctx(0, { openerGrouping: false })).actions).toEqual([]);
+    const off = ctx(0, { openerGrouping: false, autoOrganize: false });
+    expect(step(stateWith([opener]), { type: "tabCreated", tab: tab(2, { openerTabId: 1 }), opener }, off).actions).toEqual([]);
   });
 
   it("ignores incognito tabs entirely", () => {
@@ -72,11 +73,22 @@ describe("dissolve rule", () => {
     expect(step(s, { type: "dissolveCheck", groupId: 10, memberIds: [1, 3] }, ctx()).actions).toEqual([]);
   });
 
-  it("organize groups shrink to one member without dissolving", () => {
+  it("organize groups dissolve at one member too", () => {
     const s = stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
     const r1 = step(s, { type: "tabRemoved", tabId: 2 }, ctx());
-    expect(r1.actions.some((a) => a.type === "scheduleDissolve")).toBe(false);
-    expect(step(r1.state, { type: "dissolveCheck", groupId: 10, memberIds: [1] }, ctx()).actions).toEqual([]);
+    expect(r1.actions).toContainEqual({ type: "scheduleDissolve", groupId: 10, delayMs: DISSOLVE_DELAY_MS });
+    expect(step(r1.state, { type: "dissolveCheck", groupId: 10, memberIds: [1] }, ctx()).actions).toEqual([{ type: "ungroup", tabIds: [1] }]);
+  });
+
+  it("a group you titled yourself is not dissolved", () => {
+    const s = stateWith([tab(1, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+    s.groups[10].userNamed = true;
+    expect(step(s, { type: "dissolveCheck", groupId: 10, memberIds: [1] }, ctx()).actions).toEqual([]);
+  });
+
+  it("the Parked group is not dissolved", () => {
+    const s = stateWith([tab(1, { groupId: 10 })], [{ id: 10, origin: "tidy" }]);
+    expect(step(s, { type: "dissolveCheck", groupId: 10, memberIds: [1] }, ctx()).actions).toEqual([]);
   });
 
   it("user groups are never dissolved", () => {
@@ -182,5 +194,61 @@ describe("dirty triggers", () => {
     const before = JSON.stringify(s);
     step(s, { type: "tabRemoved", tabId: 1 }, ctx());
     expect(JSON.stringify(s)).toBe(before);
+  });
+});
+
+describe("auto-organize triggers", () => {
+  it("a new tab that navigates somewhere real asks for a look at its window", () => {
+    const s = stateWith([tab(1, { url: "brave://newtab/" })]);
+    const { actions } = step(s, { type: "tabUpdated", tab: tab(1, { url: "https://tokio.rs/" }) }, ctx());
+    expect(actions).toEqual([{ type: "loose", windowId: 1 }]);
+  });
+
+  it("new tab pages, pinned tabs and grouped tabs do not", () => {
+    expect(step(stateWith([]), { type: "tabCreated", tab: tab(1, { url: "brave://newtab/" }) }, ctx()).actions).toEqual([]);
+    expect(step(stateWith([]), { type: "tabCreated", tab: tab(1, { pinned: true }) }, ctx()).actions).toEqual([]);
+    const g = stateWith([tab(1, { groupId: 10 })], [{ id: 10, origin: "opener" }]);
+    expect(step(g, { type: "tabUpdated", tab: tab(1, { groupId: 10, title: "new" }) }, ctx()).actions).not.toContainEqual({ type: "loose", windowId: 1 });
+  });
+
+  it("does nothing when auto-organize is off", () => {
+    const s = stateWith([tab(1, { url: "brave://newtab/" })]);
+    expect(step(s, { type: "tabUpdated", tab: tab(1, { url: "https://tokio.rs/" }) }, ctx(0, { autoOrganize: false })).actions).toEqual([]);
+  });
+
+  it("a tab you take out of a group stays loose until it goes to another page", () => {
+    const s = stateWith([tab(1, { groupId: 10, url: "https://a.com/x" }), tab(2, { groupId: 10 }), tab(3, { groupId: 10 })], [{ id: 10, origin: "opener" }]);
+    const r1 = step(s, { type: "tabUpdated", tab: tab(1, { url: "https://a.com/x" }) }, ctx());
+    expect(r1.state.tabs[1].keepLoose).toBe("https://a.com/x");
+    expect(r1.actions).not.toContainEqual({ type: "loose", windowId: 1 });
+    const r2 = step(r1.state, { type: "tabUpdated", tab: tab(1, { url: "https://a.com/x", title: "retitled" }) }, ctx());
+    expect(r2.actions).toEqual([]);
+    const r3 = step(r2.state, { type: "tabUpdated", tab: tab(1, { url: "https://b.com/y" }) }, ctx());
+    expect(r3.state.tabs[1].keepLoose).toBeUndefined();
+    expect(r3.actions).toEqual([{ type: "loose", windowId: 1 }]);
+  });
+
+  it("a tab Diagonal ungrouped itself (dissolve) is fair game again", () => {
+    const s = stateWith([tab(1, { groupId: 10 })], [{ id: 10, origin: "opener" }]);
+    s.ownUngroups[1] = 999_000;
+    const { state, actions } = step(s, { type: "tabUpdated", tab: tab(1) }, ctx());
+    expect(state.tabs[1].keepLoose).toBeUndefined();
+    expect(state.ownUngroups[1]).toBeUndefined();
+    expect(actions).toContainEqual({ type: "loose", windowId: 1 });
+  });
+
+  it("opening a parked tab takes it out of Parked", () => {
+    const s = stateWith([tab(1, { groupId: 20 }), tab(2, { groupId: 20 })], [{ id: 20, origin: "tidy" }]);
+    s.tabs[1].parkedFrom = "Rust async";
+    const { state, actions } = step(s, { type: "tabActivated", tabId: 1 }, ctx());
+    expect(actions).toEqual([{ type: "unpark", tabId: 1, groupId: 20 }]);
+    expect(state.tabs[1].parkedFrom).toBeUndefined();
+  });
+
+  it("activating a tab anywhere else only records the time", () => {
+    const s = stateWith([tab(1, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+    const { state, actions } = step(s, { type: "tabActivated", tabId: 1 }, ctx(5_000_000));
+    expect(actions).toEqual([]);
+    expect(state.tabs[1].lastActivatedAt).toBe(5_000_000);
   });
 });

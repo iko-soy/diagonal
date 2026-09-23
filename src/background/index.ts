@@ -2,7 +2,7 @@ import { stripTitle } from "../shared/label";
 import { applyEvent, type Action, type EngineEvent, type GroupSnapshot, type TabSnapshot } from "./engine";
 import { callHost, chromeSender, explain, HOST_MANIFEST_PATH, SETUP_ERRORS, type HostOpts, type HostReply, type Op } from "./host";
 import { GLOBAL_PAUSE_AFTER, GLOBAL_PAUSE_MS, Naming, RATE_LIMIT_PAUSES_MS, type Member, type NamePayload, type NameResult } from "./naming";
-import { organizeWindow, undoOrganize, UNDO_WINDOW_MS as ORGANIZE_UNDO_MS } from "./organize";
+import { AutoOrganizer, organizeWindow, undoOrganize, UNDO_WINDOW_MS as ORGANIZE_UNDO_MS } from "./organize";
 import { addToGroup, createManagedGroup, ungroup, updateGroup, type Runtime } from "./runtime";
 import { withDefaults, type Settings } from "./settings";
 import { markDirty, migrate, newGroupRecord, type GroupRecord, type HostError, type PingResult, type State, type TabRecord } from "./state";
@@ -13,6 +13,7 @@ import { forgetArchived, parkedTitle, restoreAll, restoreArchived, runSweep, und
 const ALARM_NAMING = "naming-fallback";
 const ALARM_TIDY = "tidy-sweep";
 const ALARM_HOST = "host-retry";
+const ALARM_AUTO = "auto-organize";
 const HOST_RETRY_MS = 600_000;
 
 // ----- state cache ------------------------------------------------------------------------------
@@ -65,11 +66,21 @@ function logError(where: string, e: unknown): void {
 
 // ----- host ------------------------------------------------------------------------------------
 
+let modelQueue: Promise<unknown> = Promise.resolve();
+
+/** Naming and organizing both run the model: one call at a time, so they never compete for it. */
+function oneModelCall<T>(fn: () => Promise<T>): Promise<T> {
+  const next = modelQueue.then(fn, fn);
+  modelQueue = next.catch(() => undefined);
+  return next;
+}
+
 async function host<T>(op: Op, payload: object, extra: Partial<HostOpts> = {}): Promise<HostReply<T>> {
   const opts: HostOpts = { model: settings.model, timeoutMs: settings.timeoutMs, emoji: settings.emoji, debug: settings.debugLog, ...extra };
   busy(true);
   try {
-    const reply = await callHost<T>(chromeSender, op, payload, opts);
+    const call = () => callHost<T>(chromeSender, op, payload, opts);
+    const reply = op === "ping" ? await call() : await oneModelCall(call);
     const h = state.host;
     if (reply.ok) {
       h.lastOkAt = Date.now();
@@ -122,6 +133,7 @@ async function ping(): Promise<HostReply<PingResult>> {
       h.lastError = undefined;
       chrome.alarms.clear(ALARM_HOST);
       void naming.sweepDirty();
+      void autoOrganizer.sweep();
     }
   }
   commit();
@@ -213,6 +225,15 @@ const rt: Runtime = {
   log,
 };
 
+async function scheduleAutoFallback(when: number): Promise<void> {
+  const at = Math.max(when, Date.now() + 30_000);
+  const existing = await chrome.alarms.get(ALARM_AUTO);
+  if (existing && existing.scheduledTime <= at && existing.scheduledTime > Date.now()) return;
+  await chrome.alarms.create(ALARM_AUTO, { when: at });
+}
+
+const autoOrganizer = new AutoOrganizer(rt, { scheduleFallback: (when) => void scheduleAutoFallback(when) });
+
 // ----- engine glue -----------------------------------------------------------------------------
 
 let chain: Promise<unknown> = Promise.resolve();
@@ -274,7 +295,19 @@ async function run(a: Action): Promise<void> {
       await addToGroup(rt, a.tabIds, a.groupId);
       break;
     case "ungroup":
+      for (const id of a.tabIds) state.ownUngroups[id] = Date.now();
       await ungroup(rt, a.tabIds);
+      break;
+    case "unpark": {
+      const rec = state.tabs[a.tabId];
+      if (rec) rec.organizedKey = undefined;
+      state.ownUngroups[a.tabId] = Date.now();
+      await ungroup(rt, [a.tabId]);
+      if ((await chrome.tabs.query({ groupId: a.groupId }).catch(() => [])).length) await updateGroup(rt, a.groupId, { collapsed: true });
+      break;
+    }
+    case "loose":
+      autoOrganizer.touch(a.windowId);
       break;
     case "scheduleDissolve":
       // Re-checked after the delay so Cmd+Shift+T right after a close does not flicker.
@@ -324,6 +357,8 @@ async function reconcile(): Promise<void> {
       openerTabId: t.openerTabId,
       description: prev?.description,
       parkedFrom: prev?.parkedFrom,
+      keepLoose: prev?.keepLoose,
+      organizedKey: prev?.organizedKey,
       createdAt: prev?.createdAt ?? now,
       lastActivatedAt: Math.max(prev?.lastActivatedAt ?? 0, t.lastAccessed ?? 0) || now,
     };
@@ -351,6 +386,7 @@ async function reconcile(): Promise<void> {
   state.groups = nextGroups;
   state.pendingCreates = [];
   state.ownWrites = {};
+  state.ownUngroups = {};
   if (state.lastSweep && now - state.lastSweep.at > SWEEP_UNDO_MS) state.lastSweep = undefined;
   if (state.lastOrganize && now - state.lastOrganize.at > ORGANIZE_UNDO_MS) state.lastOrganize = undefined;
   commit();
@@ -373,6 +409,7 @@ async function boot(reason: "startup" | "installed"): Promise<void> {
   await ping();
   await naming.sweepDirty();
   if (reason === "startup") void runSweep(rt).catch((e) => logError("tidy", e));
+  await autoOrganizer.sweep();
   refreshBadge();
 }
 
@@ -425,6 +462,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
     await ready;
     if (alarm.name === ALARM_NAMING) await naming.sweepDirty();
+    else if (alarm.name === ALARM_AUTO) await autoOrganizer.sweep();
     else if (alarm.name === ALARM_TIDY) await runSweep(rt).catch((e) => logError("tidy", e));
     else if (alarm.name === ALARM_HOST) {
       const r = await ping();
@@ -441,6 +479,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     settings = withDefaults(changes.settings.newValue);
     if (before.emoji !== settings.emoji) await rewriteTitles();
     if (before.tidyMode !== settings.tidyMode || before.tidyThreshold !== settings.tidyThreshold) await runSweep(rt).catch(() => undefined);
+    if (!before.autoOrganize && settings.autoOrganize) await autoOrganizer.sweep();
     refreshBadge();
   })();
 });
@@ -453,13 +492,6 @@ async function rewriteTitles(): Promise<void> {
   }
 }
 
-// ----- commands --------------------------------------------------------------------------------
-
-async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
-  const [t] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  return t;
-}
-
 async function nameGroupNow(groupId: number): Promise<void> {
   const g = state.groups[groupId];
   if (!g) return;
@@ -469,25 +501,6 @@ async function nameGroupNow(groupId: number): Promise<void> {
   commit();
   await naming.nameNow(groupId);
 }
-
-chrome.commands.onCommand.addListener((command) => {
-  void (async () => {
-    await ready;
-    try {
-      if (command === "organize-window") {
-        const t = await activeTab();
-        if (t) await organizeWindow(rt, t.windowId);
-      } else if (command === "rename-current-group") {
-        const t = await activeTab();
-        if (t && (t.groupId ?? -1) !== -1) await nameGroupNow(t.groupId);
-      } else if (command === "tidy-now") {
-        await runSweep(rt, true);
-      }
-    } catch (e) {
-      logError(`command ${command}`, e);
-    }
-  })();
-});
 
 // ----- messages (content script, popup, options) -----------------------------------------------
 

@@ -1,6 +1,7 @@
 import { COLORS, isColor, type GroupColor } from "../shared/colors";
 import { labelOf, repairLabel, safeEmoji, stripTitle } from "../shared/label";
 import { colorFor, isInternalUrl, promptAddress, provisionalTitle } from "../shared/url";
+import { pathKey } from "./engine";
 import { membersHash, memberUrls, toItems, type Member, type NameItem } from "./naming";
 import { addToGroup, createManagedGroup, groupExists, ungroup, type Runtime } from "./runtime";
 import { markDirty, type State } from "./state";
@@ -227,7 +228,7 @@ export async function organizeWindow(rt: Runtime, windowId: number): Promise<Org
   return report;
 }
 
-async function applyPlan(
+export async function applyPlan(
   rt: Runtime,
   plan: Plan,
   windowId: number,
@@ -292,6 +293,140 @@ export async function undoOrganize(rt: Runtime): Promise<number> {
   rt.state().lastOrganize = undefined;
   rt.commit();
   return restored;
+}
+
+/** What auto-organize remembers about a tab: it looks again only when the page or title changes. */
+export const organizedKeyOf = (t: { url?: string; title?: string }): string => `${pathKey(t.url)}\n${t.title ?? ""}`;
+
+export const AUTO_RETRY_MS = 300_000;
+export const AUTO_CONTINUE_MS = 1_500;
+
+export interface AutoDeps {
+  /** Wake the worker later even if it is suspended before the debounce timer fires. */
+  scheduleFallback(when: number): void;
+}
+
+/**
+ * Section 3 without the button: loose tabs are organized on their own once a window has been
+ * quiet for `autoOrganizeDelayMs`. Each run sends one batch, new or changed tabs first, together
+ * with the window's other loose tabs and Diagonal's groups, so a new tab can join an existing group
+ * or pair up with a tab that was left over earlier. A tab the model leaves loose is not sent again
+ * until its page or title changes or another tab arrives to pair it with.
+ */
+export class AutoOrganizer {
+  private timers = new Map<number, ReturnType<typeof setTimeout>>();
+  private running = false;
+  private queued = new Set<number>();
+
+  constructor(
+    private rt: Runtime,
+    private deps: AutoDeps,
+  ) {}
+
+  touch(windowId: number, delayMs = this.rt.settings().autoOrganizeDelayMs): void {
+    if (!this.rt.settings().autoOrganize) return;
+    const old = this.timers.get(windowId);
+    if (old) clearTimeout(old);
+    this.timers.set(
+      windowId,
+      setTimeout(() => {
+        this.timers.delete(windowId);
+        void this.run(windowId);
+      }, delayMs),
+    );
+    this.deps.scheduleFallback(this.rt.now() + delayMs + 60_000);
+  }
+
+  /** Every window, now: on boot, when the host recovers, and from the fallback alarm. */
+  async sweep(): Promise<void> {
+    if (!this.rt.settings().autoOrganize) return;
+    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] }).catch(() => []);
+    for (const w of windows) if (w.id !== undefined && !w.incognito) await this.run(w.id);
+  }
+
+  async run(windowId: number): Promise<void> {
+    if (this.running) {
+      this.queued.add(windowId);
+      return;
+    }
+    this.running = true;
+    try {
+      await this.once(windowId);
+    } catch (e) {
+      this.rt.log("auto-organize failed", e);
+    } finally {
+      this.running = false;
+      const next = this.queued.values().next();
+      if (!next.done) {
+        this.queued.delete(next.value);
+        void this.run(next.value);
+      }
+    }
+  }
+
+  private async once(windowId: number): Promise<void> {
+    const rt = this.rt;
+    const settings = rt.settings();
+    if (!settings.autoOrganize) return;
+    const pausedUntil = rt.state().host.pausedUntil;
+    if (pausedUntil && pausedUntil > rt.now()) return; // the host-retry ping sweeps again when it recovers
+    const tabs = (await chrome.tabs.query({ windowId }).catch(() => [])).sort((a, b) => a.index - b.index);
+    const s = rt.state();
+    // Still-loading tabs are skipped here; finishing the load touches the window again.
+    const loose = tabs.filter((t) => organizable(t) && t.status === "complete" && !s.tabs[t.id!]?.keepLoose);
+    const fresh = loose.filter((t) => s.tabs[t.id!]?.organizedKey !== organizedKeyOf(t));
+    if (!fresh.length) return;
+    const { ids: existingIds, list: existingGroups } = existingGroupsFor(s, windowId);
+    if (loose.length < 2 && !existingIds.length) return; // one loose tab and nothing to join: wait for company
+    const toMember = (t: chrome.tabs.Tab): Member => ({
+      id: t.id!,
+      index: t.index,
+      url: t.url ?? "",
+      title: t.title ?? "",
+      status: t.status,
+      description: s.tabs[t.id!]?.description,
+      lastActive: t.lastAccessed ?? 0,
+    });
+    const ordered = [...fresh, ...loose.filter((t) => !fresh.includes(t))].map(toMember);
+    const batch = makeBatches(ordered)[0];
+    const maxGroups = maxGroupsFor(batch.length);
+    const payload: OrganizePayload = {
+      items: toItems(batch, settings),
+      existingGroups,
+      allowNew: batch.length >= 2,
+      maxGroups,
+      minGroupSize: settings.organizeMinGroupSize,
+    };
+    let reply = await rt.host<OrganizeResult>("organize", payload);
+    if (!reply.ok && reply.error.code === "OVER_BUDGET" && batch.length > 1) {
+      // Rare with the budgeted batch; try once with half, the rest follows on the next run.
+      const half = batch.slice(0, Math.ceil(batch.length / 2));
+      payload.items = toItems(half, settings);
+      payload.maxGroups = maxGroupsFor(half.length);
+      payload.allowNew = half.length >= 2;
+      batch.length = half.length;
+      reply = await rt.host<OrganizeResult>("organize", payload);
+    }
+    if (!reply.ok && reply.error.code === "BAD_MODEL_OUTPUT") reply = await rt.host<OrganizeResult>("organize", payload, { strict: true });
+    if (!reply.ok) {
+      rt.log("auto-organize", reply.error.code);
+      this.deps.scheduleFallback(rt.now() + AUTO_RETRY_MS);
+      return;
+    }
+    const batchIds = batch.map((m) => m.id);
+    const plan = planFromResult(reply.result, batchIds, existingIds, settings.organizeMinGroupSize, payload.maxGroups, (ids) =>
+      colorFor(batch.find((m) => m.id === ids[0])?.url ?? ""),
+    );
+    await applyPlan(rt, plan, windowId, batch, {}, []);
+    const live = rt.state();
+    for (const m of batch) {
+      const rec = live.tabs[m.id];
+      if (rec) rec.organizedKey = organizedKeyOf(m);
+    }
+    rt.commit();
+    const remaining = fresh.filter((t) => !batchIds.includes(t.id!));
+    if (remaining.length) this.touch(windowId, AUTO_CONTINUE_MS);
+  }
 }
 
 export { COLORS };

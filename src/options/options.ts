@@ -11,8 +11,10 @@ type Field =
 
 const SECTIONS: [string, Field[]][] = [
   ["Grouping", [
+    { key: "autoOrganize", label: "Organize loose tabs into groups automatically", help: "Tabs you take out of a group stay out until they go to another page.", kind: "bool" },
+    { key: "autoOrganizeDelayMs", label: "Wait after the last tab change", kind: "number", min: 3, max: 120, step: 1, unit: "s", scale: 1000 },
     { key: "openerGrouping", label: "Group a tab with the tab it was opened from", kind: "bool" },
-    { key: "dissolveSingletons", label: "Ungroup opener groups that drop to one tab", kind: "bool" },
+    { key: "dissolveSingletons", label: "Ungroup Diagonal's groups that drop to one tab", kind: "bool" },
   ]],
   ["Naming", [
     { key: "naming", label: "Name groups with the on-device model", kind: "bool" },
@@ -23,13 +25,13 @@ const SECTIONS: [string, Field[]][] = [
     { key: "sendFullUrl", label: "Send full addresses to the model", help: "Off: hostname only.", kind: "bool" },
     { key: "model", label: "Model", kind: "select", options: [["system", "On-device (system)"], ["pcc", "Private Cloud Compute"]] },
     { key: "timeoutMs", label: "Timeout per model call", kind: "number", min: 5, max: 120, step: 1, unit: "s", scale: 1000 },
-    { key: "organizeMinGroupSize", label: "Smallest group Organize creates", kind: "number", min: 2, max: 5, unit: "tabs" },
+    { key: "organizeMinGroupSize", label: "Smallest new group", kind: "number", min: 2, max: 5, unit: "tabs" },
   ]],
   ["Tidy", [
-    { key: "tidyMode", label: "Tidy sweep", kind: "select", options: [["ask", "Ask before parking"], ["auto", "Park automatically"], ["off", "Off"]] },
+    { key: "tidyMode", label: "Tidy sweep", kind: "select", options: [["auto", "Park automatically"], ["ask", "Ask before parking"], ["off", "Off"]] },
     { key: "parkAfterHours", label: "Park tabs untouched for", kind: "number", min: 1, max: 720, unit: "h" },
     { key: "archiveAfterHours", label: "Archive parked tabs after", help: "0 = never archive.", kind: "number", min: 0, max: 2160, unit: "h" },
-    { key: "tidyThreshold", label: "Only offer a sweep with at least", kind: "number", min: 1, max: 100, unit: "tabs" },
+    { key: "tidyThreshold", label: "Ask mode: offer a sweep at", kind: "number", min: 1, max: 100, unit: "tabs" },
     { key: "discardParked", label: "Discard parked tabs from memory", kind: "bool" },
     { key: "tidyUserGroups", label: "Tidy inside my own groups", kind: "bool" },
     { key: "tidyExclusions", label: "Never tidy addresses containing", help: "One per line. Write /…/ for a regular expression.", kind: "list" },

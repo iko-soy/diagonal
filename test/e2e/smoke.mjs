@@ -1,6 +1,6 @@
 // End-to-end smoke test: loads dist/ into Chromium with the real native host (host/diagonal-host.py)
 // wired to a keyword-driven fake fm, then drives opener grouping, naming, a user rename, dissolve,
-// Organize and the popup. Linux only (native host manifests live under the profile directory).
+// Organize, auto-organize and the popup. Linux only (native host manifests live under the profile directory).
 //   node test/e2e/smoke.mjs      (after npm run build)
 import { chromium } from "playwright-core";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
@@ -90,8 +90,9 @@ try {
     }
   };
 
-  // Settings: short debounce so the test is quick.
-  await sw.evaluate(async () => chrome.storage.local.set({ settings: { namingDebounceMs: 1000 } }));
+  // Settings: short debounce so the test is quick; auto-organize stays off until step 6 so the
+  // earlier steps see only the rule they test.
+  await sw.evaluate(async () => chrome.storage.local.set({ settings: { namingDebounceMs: 1000, autoOrganize: false } }));
 
   // Wait for boot's ping.
   const pinged = await until(() => sw.evaluate(async () => (await chrome.storage.local.get("state")).state?.host?.lastPing?.fmAvailable === true));
@@ -157,7 +158,35 @@ try {
   const afterUndo = await sw.evaluate(async (w) => (await chrome.tabGroups.query({ windowId: w })).length, win);
   check("Undo organize restores the previous layout", undone?.result === 4 && afterUndo === 0, JSON.stringify({ undone, afterUndo }));
 
-  // 6. Popup renders the healthy state.
+  // 6. Auto-organize: the same tabs in a fresh window get grouped with no button pressed.
+  await sw.evaluate(async () => chrome.storage.local.set({ settings: { namingDebounceMs: 1000, autoOrganize: true, autoOrganizeDelayMs: 3000 } }));
+  const win2 = await sw.evaluate(async (b) => {
+    const w = await chrome.windows.create({ url: `${b}/hotel` });
+    for (const p of ["travel", "pasta", "cook", "misc"]) await chrome.tabs.create({ windowId: w.id, url: `${b}/${p}` });
+    return w.id;
+  }, base);
+  const titlesIn = (w) => sw.evaluate(async (w) => (await chrome.tabGroups.query({ windowId: w })).map((g) => g.title).sort().join("|"), w);
+  const autoTitles = await until(async () => {
+    const t = await titlesIn(win2);
+    return t.split("|").length === 2 ? t : undefined;
+  }, 25000);
+  check("loose tabs are organized on their own once the window settles", autoTitles === "✈️ Lisbon trip planning|🍳 Weeknight pasta recipes", autoTitles ?? (await titlesIn(win2)));
+
+  const tabIn = (w, path) => sw.evaluate(async ([w, path]) => (await chrome.tabs.query({ windowId: w })).find((t) => t.url.endsWith(path)), [w, path]);
+  const hotel = await tabIn(win2, "/hotel");
+  await sw.evaluate(async (id) => chrome.tabs.ungroup(id), hotel.id);
+  await sleep(5000);
+  check("a tab you take out of a group stays out", (await tabIn(win2, "/hotel")).groupId === -1);
+
+  const cook = await tabIn(win2, "/cook");
+  const pastaGroup = cook.groupId;
+  await sw.evaluate(async (id) => chrome.tabs.remove(id), cook.id);
+  const gone = await until(async () => !(await sw.evaluate(async (w) => (await chrome.tabGroups.query({ windowId: w })).map((g) => g.id), win2)).includes(pastaGroup), 6000);
+  await sleep(4500);
+  const pasta = await tabIn(win2, "/pasta");
+  check("an auto-made group closed down to one tab dissolves, and the tab is not regrouped alone", !!gone && pasta.groupId === -1, JSON.stringify({ gone, pasta: pasta.groupId }));
+
+  // 7. Popup renders the healthy state.
   await popup.setViewportSize({ width: 360, height: 560 });
   await popup.reload();
   await sleep(800);
@@ -174,7 +203,7 @@ try {
   await options.setViewportSize({ width: 900, height: 1400 });
   await options.screenshot({ path: join(shotDir, "options.png"), fullPage: true });
 
-  // 7. Host missing → HOST_NOT_FOUND surfaced.
+  // 8. Host missing → HOST_NOT_FOUND surfaced.
   writeFileSync(join(profile, "NativeMessagingHosts/io.diagonal.host.json"), "{}");
   writeFileSync(join(tmp, "home/.config/chromium/NativeMessagingHosts/io.diagonal.host.json"), "{}");
   const bad = await popup.evaluate(async () => chrome.runtime.sendMessage({ cmd: "ping" }));

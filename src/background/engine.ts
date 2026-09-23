@@ -48,7 +48,9 @@ export type Action =
   | { type: "addToGroup"; tabIds: number[]; groupId: number }
   | { type: "ungroup"; tabIds: number[] }
   | { type: "scheduleDissolve"; groupId: number; delayMs: number }
-  | { type: "dirty"; groupId: number };
+  | { type: "dirty"; groupId: number }
+  | { type: "loose"; windowId: number }
+  | { type: "unpark"; tabId: number; groupId: number };
 
 export interface Ctx {
   now: number;
@@ -84,7 +86,9 @@ const handlers: Handlers = {
     if (tab.incognito) return;
     const rec = upsertTab(s, tab, ctx.now);
     if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);
+    const before = out.length;
     openerRule(s, tab, opener ?? snapshotOf(s, tab.openerTabId), ctx, out);
+    if (out.length === before) loose(rec, ctx, out);
   },
 
   tabUpdated(s, { tab }, ctx, out) {
@@ -93,16 +97,31 @@ const handlers: Handlers = {
     const rec = upsertTab(s, tab, ctx.now);
     if (!before) {
       if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);
+      else loose(rec, ctx, out);
       return;
     }
+    const titleChanged = before.title !== rec.title;
+    const pathChanged = pathKey(before.url) !== pathKey(rec.url);
+    if (pathChanged) rec.keepLoose = undefined; // a new page is fair game again
     if (before.groupId !== rec.groupId) {
       left(s, before.groupId, ctx, out);
       if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);
+      else if (before.groupId !== -1) {
+        // Out of a group: ours if the worker dissolved it, otherwise the user's choice to keep it loose.
+        if (s.ownUngroups[rec.id] !== undefined) {
+          delete s.ownUngroups[rec.id];
+          loose(rec, ctx, out);
+        } else {
+          rec.keepLoose = pathKey(rec.url);
+        }
+      }
       return;
     }
-    if (rec.groupId === -1) return;
-    const titleChanged = before.title !== rec.title;
-    const pathChanged = pathKey(before.url) !== pathKey(rec.url);
+    if (rec.groupId === -1) {
+      const loaded = before.status !== "complete" && rec.status === "complete";
+      if (titleChanged || pathChanged || loaded || before.pinned !== rec.pinned) loose(rec, ctx, out);
+      return;
+    }
     if (titleChanged || pathChanged) dirty(s, rec.groupId, ctx, out);
     else if (before.status !== "complete" && rec.status === "complete" && s.groups[rec.groupId]?.dirty) {
       // A member finished loading: the naming loop may have been waiting for it.
@@ -117,9 +136,15 @@ const handlers: Handlers = {
     left(s, rec.groupId, ctx, out);
   },
 
-  tabActivated(s, { tabId }, ctx) {
+  tabActivated(s, { tabId }, ctx, out) {
     const rec = s.tabs[tabId];
-    if (rec) rec.lastActivatedAt = ctx.now;
+    if (!rec) return;
+    rec.lastActivatedAt = ctx.now;
+    // Using a parked tab means it is not stale: it leaves Parked and auto-organize places it.
+    if (rec.groupId !== -1 && s.groups[rec.groupId]?.origin === "tidy") {
+      rec.parkedFrom = undefined;
+      out.push({ type: "unpark", tabId, groupId: rec.groupId });
+    }
   },
 
   groupCreated(s, { group }, ctx, out) {
@@ -207,8 +232,15 @@ function openerRule(s: State, child: TabSnapshot, opener: TabSnapshot | undefine
   });
 }
 
+/** Groups Diagonal made (opener or topic) go away when one tab is left; the Parked group and yours stay. */
 export const shouldDissolve = (g: GroupRecord, settings: Settings): boolean =>
-  g.managed && g.origin === "opener" && settings.dissolveSingletons;
+  g.managed && (g.origin === "opener" || g.origin === "organize") && !g.userNamed && settings.dissolveSingletons;
+
+/** An ungrouped tab changed: auto-organize should look at its window once things settle. */
+function loose(rec: TabRecord, ctx: Ctx, out: Action[]): void {
+  if (!ctx.settings.autoOrganize || rec.groupId !== -1 || rec.pinned || rec.keepLoose || isInternalUrl(rec.url)) return;
+  out.push({ type: "loose", windowId: rec.windowId });
+}
 
 /** A tab left `groupId`: the group changed, and an opener group may now be a singleton. */
 function left(s: State, groupId: number, ctx: Ctx, out: Action[]): void {
@@ -271,6 +303,8 @@ function upsertTab(s: State, tab: TabSnapshot, now: number): TabRecord {
   else if (before?.openerTabId !== undefined) rec.openerTabId = before.openerTabId;
   // A description belongs to a page: keep it only while the tab stays on that page.
   if (before?.description && pathKey(before.url) === pathKey(url)) rec.description = before.description;
+  if (before?.keepLoose) rec.keepLoose = before.keepLoose;
+  if (before?.organizedKey) rec.organizedKey = before.organizedKey;
   s.tabs[tab.id] = rec;
   return rec;
 }
@@ -292,4 +326,5 @@ export function pathKey(url: string | undefined): string {
 function prune(s: State, now: number): void {
   s.pendingCreates = s.pendingCreates.filter((p) => now - p.at <= OWN_CREATE_WINDOW_MS);
   for (const [id, w] of Object.entries(s.ownWrites)) if (now - w.at > OWN_WRITE_WINDOW_MS) delete s.ownWrites[+id];
+  for (const [id, at] of Object.entries(s.ownUngroups)) if (now - at > OWN_WRITE_WINDOW_MS) delete s.ownUngroups[+id];
 }

@@ -120,7 +120,8 @@ export async function runSweep(rt: Runtime, manual = false): Promise<SweepReport
   let tabs = await liveTabs();
   const candidates = parkCandidates(tabs, rt.state(), settings, now);
   report.candidates = candidates.length;
-  const park = manual || (settings.tidyMode === "auto" && candidates.length >= settings.tidyThreshold);
+  // Auto parks whatever is stale; the threshold only decides when Ask mode puts a count on the badge.
+  const park = manual || settings.tidyMode === "auto";
   if (park && candidates.length) {
     report.parked = await parkTabs(rt, candidates);
     tabs = await liveTabs();

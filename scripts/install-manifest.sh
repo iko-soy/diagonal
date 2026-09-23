@@ -26,6 +26,13 @@ for arg in "$@"; do
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
+# Also register with every other Brave channel that has been run on this Mac (Beta, Nightly),
+# since each one reads host manifests from its own folder.
+for ch in Brave-Browser-Beta Brave-Browser-Nightly; do
+  if [[ -d "$HOME/Library/Application Support/BraveSoftware/$ch" && " ${CHANNELS[*]} " != *" $ch "* ]]; then
+    CHANNELS+=("$ch")
+  fi
+done
 
 ID=$(tr -d '[:space:]' < extension-id 2>/dev/null || true)
 if [[ -z "$ID" ]]; then
@@ -71,6 +78,27 @@ for ch in "${CHANNELS[@]}"; do
   printf '%s\n' "$MANIFEST" > "$DIR/io.diagonal.host.json.tmp"
   mv -f "$DIR/io.diagonal.host.json.tmp" "$DIR/io.diagonal.host.json"
   echo "manifest: $DIR/io.diagonal.host.json"
+done
+
+# Check what Brave will check, so a problem is named here instead of as "host not found" later.
+for ch in "${CHANNELS[@]}"; do
+  "$PYTHON" - "$HOME/Library/Application Support/BraveSoftware/$ch/NativeMessagingHosts/io.diagonal.host.json" "$ID" <<'PY'
+import json, os, sys
+path, ext_id = sys.argv[1], sys.argv[2]
+m = json.load(open(path))
+problems = []
+if m.get("name") != "io.diagonal.host":
+    problems.append(f"name is {m.get('name')!r}")
+host = m.get("path", "")
+if not os.path.isabs(host):
+    problems.append(f"path {host!r} is not absolute")
+elif not os.access(host, os.X_OK):
+    problems.append(f"host {host} is missing or not executable")
+if m.get("allowed_origins") != [f"chrome-extension://{ext_id}/"]:
+    problems.append(f"allowed_origins is {m.get('allowed_origins')}")
+if problems:
+    sys.exit("manifest check failed for " + path + ": " + "; ".join(problems))
+PY
 done
 
 FM="${DIAGONAL_FM:-/usr/bin/fm}"

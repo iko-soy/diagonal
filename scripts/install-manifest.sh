@@ -7,6 +7,7 @@
 # host manifest with that absolute path and the pinned extension ID, then installs the fm schemas
 # and runs the self-test. Safe to re-run.
 set -euo pipefail
+trap 'echo "Diagonal host install failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [[ -d "$HERE/host" ]]; then cd "$HERE"; else cd "$HERE/.."; fi
 
@@ -45,10 +46,24 @@ xattr -dr com.apple.quarantine "$SHARE" 2>/dev/null || true
 ln -sf "$SHARE/diagonal-host.py" "$BIN"
 echo "host:     $BIN -> $SHARE/diagonal-host.py"
 
+# Written here rather than by the host, so a python3 problem cannot leave an empty manifest behind,
+# and moved into place so Brave never reads a half-written one.
+MANIFEST=$(cat <<JSON
+{
+  "name": "io.diagonal.host",
+  "description": "Diagonal: names tab groups with Apple's on-device model",
+  "path": "$BIN",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$ID/"]
+}
+JSON
+)
+"$BIN" --version >/dev/null  # the host must start with the python3 it was pinned to
 for ch in "${CHANNELS[@]}"; do
   DIR="$HOME/Library/Application Support/BraveSoftware/$ch/NativeMessagingHosts"
   mkdir -p "$DIR"
-  "$BIN" --print-manifest "$BIN" > "$DIR/io.diagonal.host.json"
+  printf '%s\n' "$MANIFEST" > "$DIR/io.diagonal.host.json.tmp"
+  mv -f "$DIR/io.diagonal.host.json.tmp" "$DIR/io.diagonal.host.json"
   echo "manifest: $DIR/io.diagonal.host.json"
 done
 

@@ -34,7 +34,7 @@ function copyStatic() {
   cpSync(join(root, "src/popup/popup.html"), join(dist, "popup.html"));
   cpSync(join(root, "src/options/options.html"), join(dist, "options.html"));
   cpSync(join(root, "src/shared/ui.css"), join(dist, "ui.css"));
-  cpSync(join(root, "icons"), join(dist, "icons"), { recursive: true, filter: (p) => !p.endsWith(".svg") });
+  cpSync(join(root, "icons"), join(dist, "icons"), { recursive: true, filter: (p) => !p.endsWith("icon.png") });
   // The native host and its installer ride along, so the release zip is all a user needs.
   mkdirSync(join(dist, "host"));
   for (const f of ["diagonal-host.py", "prompts.py", "validate.py", "emoji.txt"]) cpSync(join(root, "host", f), join(dist, "host", f));

@@ -13,7 +13,7 @@
     "gen-emoji": "node scripts/gen-emoji.mjs",
     "zip": "node scripts/build.mjs && cd dist && zip -qr ../diagonal-extension.zip .",
     "smoke": "node scripts/build.mjs && node test/e2e/smoke.mjs",
-    "icons": "node scripts/render-icons.mjs",
+    "icons": "python3 scripts/render-icons.py",
     "check": "tsc --noEmit && vitest run && cd host && python3 -m unittest discover -s tests"
   },
   "devDependencies": {

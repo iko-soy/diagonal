@@ -1,3 +1,5 @@
+<p align="center"><img src="icons/icon.png" width="160" height="160" alt="Diagonal icon: two glass quarter-circles on a green rounded square"></p>
+
 # Diagonal
 
 Dia-style tab groups for Chromium browsers on macOS (Brave, Chrome, Edge, Vivaldi, Arc, Opera, …), named by Apple's on-device model through the `fm` command-line tool over Chromium native messaging. No HTTP server, no cloud call, no model download.

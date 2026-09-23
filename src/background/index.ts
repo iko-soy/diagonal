@@ -124,7 +124,9 @@ async function ping(): Promise<HostReply<PingResult>> {
   const h = state.host;
   if (reply.ok) {
     h.lastPing = { ...reply.result, at: Date.now() };
-    if (!reply.result.fmAvailable) {
+    if (reply.result.licenseRequired) {
+      recordHostError({ code: "LICENSE_REQUIRED", message: reply.result.fmMessage });
+    } else if (!reply.result.fmAvailable) {
       recordHostError({ code: "MODEL_UNAVAILABLE", message: reply.result.fmMessage || "fm reports the model unavailable" });
     } else if (!reply.result.schemasOk) {
       recordHostError({ code: "SCHEMA_MISSING", message: "schema files missing" });

@@ -53,7 +53,17 @@ for ch in "${CHANNELS[@]}"; do
 done
 
 echo "schemas:"
-"$BIN" --install-schemas || echo "  (schema install failed: is Apple Intelligence on and fm present?)"
+rc=0
+"$BIN" --install-schemas || rc=$?
+if [[ $rc -eq 3 ]]; then
+  echo
+  echo "One more step: accept Apple's terms for the fm tool once (asks for your password):"
+  echo "  sudo fm license"
+  echo "Diagonal finishes setting itself up the next time Brave talks to it."
+  echo
+elif [[ $rc -ne 0 ]]; then
+  echo "  (schema install failed: is Apple Intelligence on? Details above.)"
+fi
 echo "self-test:"
 "$BIN" --selftest || true
 echo "extension ID: $ID"

@@ -71,6 +71,21 @@ class Ping(HostCase):
         self.assertFalse(r["result"]["fmAvailable"])
         self.assertIn("Apple Intelligence", r["result"]["fmMessage"])
 
+    def test_ping_license_not_accepted(self):
+        self.control({"license": True})
+        r = self.call("ping")
+        self.assertFalse(r["result"]["fmAvailable"])
+        self.assertTrue(r["result"]["licenseRequired"])
+        self.assertIn("sudo fm license", r["result"]["fmMessage"])
+
+    def test_ping_writes_missing_schemas_once_fm_works(self):
+        for f in os.listdir(os.path.join(self.support, "schemas")):
+            os.remove(os.path.join(self.support, "schemas", f))
+        r = self.call("ping")
+        self.assertTrue(r["ok"], r)
+        self.assertTrue(r["result"]["schemasOk"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "organize.json"])
+
     def test_ping_without_fm(self):
         self.env["DIAGONAL_FM"] = os.path.join(self.tmp, "missing-fm")
         r = self.call("ping")
@@ -131,6 +146,13 @@ class ErrorCodes(HostCase):
         r = self.call("name", {"items": ITEMS3})
         self.assertEqual(r["error"]["code"], "MODEL_UNAVAILABLE")
         self.assertIn("requires macOS 27", r["error"]["message"])
+
+    def test_license_required(self):
+        self.control({"license": True})
+        r = self.call("name", {"items": ITEMS3})
+        self.assertEqual(r["error"]["code"], "LICENSE_REQUIRED", r)
+        self.assertIn("sudo fm license", r["error"]["message"])
+        self.assertFalse(r["error"]["retryable"])
 
     def test_rate_limited(self):
         self.expect("RATE_LIMITED", stderr="rate limit exceeded, try later", exit=1)
@@ -236,6 +258,19 @@ class InstallSchemas(HostCase):
         self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "organize-assign.json", "organize-labels.json"])
 
 
+    def test_license_stops_early_without_claiming_nesting_is_unsupported(self):
+        for f in os.listdir(os.path.join(self.support, "schemas")):
+            os.remove(os.path.join(self.support, "schemas", f))
+        self.control({"license": True})
+        code, _, p = self.run_host(args=["--install-schemas"])
+        err = p.stderr.decode()
+        self.assertEqual(code, 3, err)
+        self.assertIn("sudo fm license", err)
+        self.assertNotIn("unsupported", err)
+        self.assertEqual(os.listdir(os.path.join(self.support, "schemas")), [])
+        self.assertEqual(len(self.argv_log()), 1)  # stopped after the first refusal
+
+
 class SelfTest(HostCase):
     def test_selftest_passes_with_a_working_fm(self):
         self.respond(json.dumps({"title": "Rust async runtimes", "emoji": "🦀"}))
@@ -249,6 +284,13 @@ class SelfTest(HostCase):
         code, _, p = self.run_host(args=["--selftest"])
         self.assertEqual(code, 1)
         self.assertIn("FAIL model available", p.stdout.decode())
+
+    def test_selftest_names_the_license_fix(self):
+        self.control({"license": True})
+        code, _, p = self.run_host(args=["--selftest"])
+        out = p.stdout.decode()
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL fm terms accepted: run: sudo fm license", out)
 
     def test_print_manifest(self):
         code, _, p = self.run_host(args=["--print-manifest", "/Users/me/.local/bin/diagonal-host"])

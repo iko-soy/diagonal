@@ -32,6 +32,7 @@ function renderStatus(s: Status): void {
     text.textContent =
       code === "HOST_NOT_FOUND" ? "Host not installed" :
       code === "MODEL_UNAVAILABLE" ? "Model unavailable" :
+      code === "LICENSE_REQUIRED" ? "Run sudo fm license" :
       code === "HOST_FORBIDDEN" || code === "FORBIDDEN_ORIGIN" ? "Host refuses this ID" :
       code === "SCHEMA_MISSING" ? "Schemas missing" : "Host unavailable";
   } else if (s.health === "ok") {

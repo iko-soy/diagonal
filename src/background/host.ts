@@ -46,7 +46,7 @@ export function mapLastError(message: string): HostError {
 
 const KNOWN_CODES = new Set<HostErrorCode>([
   "HOST_NOT_FOUND", "HOST_FORBIDDEN", "HOST_CRASHED", "FORBIDDEN_ORIGIN", "BAD_REQUEST", "SCHEMA_MISSING",
-  "MODEL_UNAVAILABLE", "RATE_LIMITED", "OVER_BUDGET", "GUARDRAIL", "TIMEOUT", "BAD_MODEL_OUTPUT", "FM_ERROR",
+  "MODEL_UNAVAILABLE", "LICENSE_REQUIRED", "RATE_LIMITED", "OVER_BUDGET", "GUARDRAIL", "TIMEOUT", "BAD_MODEL_OUTPUT", "FM_ERROR",
 ]);
 
 export async function callHost<T>(
@@ -103,7 +103,7 @@ export function normalizeReply<T>(reply: unknown, at: number): HostReply<T> {
 
 /** Errors that mean "fix the setup", not "try this group again later". */
 export const SETUP_ERRORS = new Set<HostErrorCode>([
-  "HOST_NOT_FOUND", "HOST_FORBIDDEN", "FORBIDDEN_ORIGIN", "SCHEMA_MISSING", "MODEL_UNAVAILABLE",
+  "HOST_NOT_FOUND", "HOST_FORBIDDEN", "FORBIDDEN_ORIGIN", "SCHEMA_MISSING", "MODEL_UNAVAILABLE", "LICENSE_REQUIRED",
 ]);
 
 /** Popup copy for each error: what is wrong and what fixes it (section 12). */
@@ -115,6 +115,8 @@ export function explain(error: HostError | undefined, extensionId = ""): string 
     case "HOST_FORBIDDEN":
     case "FORBIDDEN_ORIGIN":
       return `The host does not allow this extension. Its manifest needs "allowed_origins": ["chrome-extension://${extensionId}/"]`;
+    case "LICENSE_REQUIRED":
+      return "Apple's fm tool needs its terms accepted once on this Mac. In Terminal, run: sudo fm license. Diagonal picks up from there on its own.";
     case "SCHEMA_MISSING":
       return "Schemas missing. Run: diagonal-host --install-schemas";
     case "MODEL_UNAVAILABLE":

@@ -5,6 +5,7 @@ control.json keys:
   respond_queue:  list of the same, consumed one per call before `respond` is used
   available:      {"stdout": str, "stderr": str, "exit": int} for `fm available`
   schema_nested:  false → `fm schema` with --object fails (simulates no nested-array support)
+  license:        true → every command exits 69 with the terms notice, as fm does before `sudo fm license`
 Every invocation's argv is appended to argv.log as one JSON line.
 """
 import json
@@ -13,6 +14,10 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
+# Copied from fm on macOS 27 (reported by a user's installer run).
+LICENSE_NOTICE = ("YOU HAVE NOT AGREED TO THE APPLE FOUNDATION MODELS CLI LEGAL NOTICE & TERMS.\n"
+                  "Agreeing to the Apple Foundation Models CLI Legal Notice & Terms applies to every user on the machine, "
+                  "so it must be run as a privileged user (e.g. 'sudo fm license').\n")
 
 
 def main():
@@ -22,7 +27,9 @@ def main():
     path = os.path.join(HERE, "control.json")
     control = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
     cmd = argv[0] if argv else ""
-    if cmd == "available":
+    if control.get("license"):
+        spec = {"stderr": LICENSE_NOTICE, "exit": 69}
+    elif cmd == "available":
         spec = control.get("available", {"stdout": "available", "exit": 0})
     elif cmd == "schema":
         if "--object" in argv and control.get("schema_nested", True) is False:

@@ -28,11 +28,12 @@ The model sees a tab's title, address and `<meta name="description">`, and nothi
 brew install iko-soy/tap/diagonal
 ```
 
-This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, and installs the native host and registers it with Brave. Then load the extension in Brave once:
+This downloads the latest release, puts the extension at `~/Library/Application Support/Diagonal/extension`, and installs the native host and registers it with Brave. Then, once:
 
-1. Open `brave://extensions` and turn on **Developer mode**.
-2. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
-3. Open Diagonal's settings and click **Run self-test**.
+1. Accept Apple's terms for the `fm` tool, which it asks for once per Mac before it runs at all: `sudo fm license`. Diagonal writes its model schemas on its own after that.
+2. Open `brave://extensions` and turn on **Developer mode**.
+3. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
+4. Open Diagonal's settings and click **Run self-test**.
 
 To update: `brew upgrade --cask --greedy diagonal`, then click reload on Diagonal at `brave://extensions`. `brew uninstall diagonal` removes the extension folder, the host and its Brave manifest; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
 
@@ -48,7 +49,7 @@ Brave only installs extensions on its own from the Chrome Web Store, so the one 
    bash ~/Applications/Diagonal/install-host.command
    ```
 
-   (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again.
+   (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again. If it asks you to, run `sudo fm license` once to accept Apple's terms for `fm`.
 4. Open Diagonal's settings and click **Run self-test**. Brave does not need a restart.
 
 The zip carries the host (`host/`), `extension-id` and `install-host.command`, which is the same script as `scripts/install-manifest.sh`. When you update to a newer release, rerun step 3.
@@ -128,6 +129,7 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 
 Everything was tested against a fake `fm`. These are open until someone runs it on macOS 27 (section 16 of the spec):
 
+- **Confirmed on a Mac:** `fm` is at `/usr/bin/fm`, and until an admin runs `sudo fm license` every `fm` command exits 69 with a terms notice. Diagonal reports that as `LICENSE_REQUIRED` with the fix, and the host writes its schemas on the next ping once `fm` works.
 - The `fm schema` flags. `diagonal-host --install-schemas` tries the nested organize schema and falls back to the two flat schemas plus two calls if that fails. The flags are in `SCHEMA_COMMANDS` at the top of `host/diagonal-host.py`.
 - `fm` stderr wording. `classify()` matches keywords, so an unexpected message shows as `FM_ERROR` with the raw text on the settings page.
 - Whether `fm respond` can read the prompt from stdin. Until then, the prompt is an argument and is briefly visible in `ps`.

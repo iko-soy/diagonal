@@ -62,6 +62,7 @@ export type HostErrorCode =
   | "BAD_REQUEST"
   | "SCHEMA_MISSING"
   | "MODEL_UNAVAILABLE"
+  | "LICENSE_REQUIRED"
   | "RATE_LIMITED"
   | "OVER_BUDGET"
   | "GUARDRAIL"
@@ -83,6 +84,7 @@ export interface PingResult {
   fmPath: string;
   fmAvailable: boolean;
   fmMessage: string;
+  licenseRequired?: boolean;
   schemasOk: boolean;
   organizeMode?: string;
 }

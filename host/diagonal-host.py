@@ -11,6 +11,8 @@ Other entry points:
   diagonal-host --print-manifest P  print the host manifest JSON for executable path P
   diagonal-host --version
 """
+import contextlib
+import io
 import json
 import os
 import struct
@@ -149,8 +151,21 @@ def validate_request(req):
 
 # ----- fm ---------------------------------------------------------------------------------------
 
-def classify(stderr):
+# fm refuses every command with exit 69 until an admin accepts Apple's terms once per machine.
+LICENSE_EXIT = 69
+LICENSE_FIX = "sudo fm license"
+LICENSE_MESSAGE = f"Apple's fm tool needs its terms accepted once on this Mac. In Terminal, run: {LICENSE_FIX}"
+
+
+def license_needed(returncode, text):
+    t = (text or "").lower()
+    return returncode == LICENSE_EXIT or "legal notice" in t or "fm license" in t
+
+
+def classify(stderr, returncode=None):
     s = (stderr or "").lower()
+    if license_needed(returncode, s):
+        return "LICENSE_REQUIRED"
     if "not available" in s or "unavailable" in s or "apple intelligence" in s or "download" in s or "not supported" in s:
         return "MODEL_UNAVAILABLE"
     if "rate" in s and "limit" in s:
@@ -203,7 +218,10 @@ def run_fm(prompt, schema, model, timeout_s):
     except subprocess.TimeoutExpired:
         raise Fail("TIMEOUT", f"fm exceeded {timeout_s:g}s", retryable=True)
     if p.returncode != 0:
-        raise Fail(classify(p.stderr), (p.stderr or f"fm exited {p.returncode}").strip()[:500], retryable=True, raw=(p.stderr or "")[:2000])
+        code = classify(p.stderr, p.returncode)
+        if code == "LICENSE_REQUIRED":
+            raise Fail(code, LICENSE_MESSAGE, raw=(p.stderr or "")[:2000])
+        raise Fail(code, (p.stderr or f"fm exited {p.returncode}").strip()[:500], retryable=True, raw=(p.stderr or "")[:2000])
     return extract_json(p.stdout)
 
 
@@ -221,14 +239,26 @@ def op_ping(_payload, _opts):
     if not os.path.exists(FM):
         return {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": False,
                 "fmMessage": f"fm not found at {FM} — requires macOS 27", "schemasOk": False, "organizeMode": organize_mode()}
+    license_required = False
     try:
         avail = subprocess.run([FM, "available", "--model", "system"], capture_output=True, text=True, timeout=15, env=fm_env())
         ok, msg = avail.returncode == 0, (avail.stdout + avail.stderr).strip()[:300]
+        if not ok and license_needed(avail.returncode, avail.stdout + avail.stderr):
+            license_required, msg = True, LICENSE_MESSAGE
     except subprocess.TimeoutExpired:
         ok, msg = False, "fm available timed out"
+    if ok and not schemas_ok():
+        # The installer could not write them (typically: terms not yet accepted). Now fm works, so do it here;
+        # stdout is the native-messaging channel, so the installer's progress lines are swallowed.
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            install_schemas()
     mode = organize_mode()
     return {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": ok, "fmMessage": msg,
-            "schemasOk": bool(schema_path("name.json")) and mode != "missing", "organizeMode": mode}
+            "licenseRequired": license_required, "schemasOk": schemas_ok(), "organizeMode": mode}
+
+
+def schemas_ok():
+    return bool(schema_path("name.json")) and organize_mode() != "missing"
 
 
 def op_name(payload, opts):
@@ -317,31 +347,47 @@ def log_request(req, reply, ms, debug_opt):
 
 # ----- CLI entry points ---------------------------------------------------------------------------
 
+INSTALL_LICENSE_EXIT = 3
+
+
 def install_schemas():
+    """0 = written; 3 = fm's terms are not accepted yet (nothing tried past that); 1 = anything else."""
     os.makedirs(SCHEMAS, exist_ok=True)
     ok = True
 
     def write(name, args):
+        """True when written; "license" or "rejected" (fm ran and refused) or "error" otherwise."""
         try:
             p = subprocess.run([FM, *args], capture_output=True, text=True, timeout=30, env=fm_env())
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             print(f"  {name}: fm failed ({e})", file=sys.stderr)
-            return False
+            return "error"
+        if license_needed(p.returncode, p.stdout + p.stderr):
+            return "license"
         if p.returncode != 0 or not p.stdout.strip():
             print(f"  {name}: fm schema exited {p.returncode}: {p.stderr.strip()[:200]}", file=sys.stderr)
-            return False
+            return "rejected"
         with open(os.path.join(SCHEMAS, name), "w", encoding="utf-8") as f:
             f.write(p.stdout)
         print(f"  wrote {os.path.join(SCHEMAS, name)}")
         return True
 
-    ok &= write("name.json", SCHEMA_COMMANDS["name.json"])
-    if write("organize.json", SCHEMA_COMMANDS["organize.json"]):
+    first = write("name.json", SCHEMA_COMMANDS["name.json"])
+    if first == "license":
+        print(f"  {LICENSE_MESSAGE}", file=sys.stderr)
+        print("  Diagonal writes its schemas on its own once that is done.", file=sys.stderr)
+        return INSTALL_LICENSE_EXIT
+    ok &= first is True
+    nested = write("organize.json", SCHEMA_COMMANDS["organize.json"])
+    if nested is True:
         for name in FALLBACK_SCHEMA_COMMANDS:
             try:
                 os.remove(os.path.join(SCHEMAS, name))
             except FileNotFoundError:
                 pass
+    elif nested != "rejected":
+        # fm did not get as far as judging the schema: no reason to think nesting is unsupported.
+        return INSTALL_LICENSE_EXIT if nested == "license" else 1
     else:
         print("  nested organize schema unsupported; using the two-call fallback", file=sys.stderr)
         try:
@@ -349,7 +395,7 @@ def install_schemas():
         except FileNotFoundError:
             pass
         for name, args in FALLBACK_SCHEMA_COMMANDS.items():
-            ok &= write(name, args)
+            ok &= write(name, args) is True
     return 0 if ok else 1
 
 
@@ -374,11 +420,15 @@ def selftest():
 
     ping = op_ping({}, {})
     check("fm found", os.path.exists(FM), FM)
-    check("model available (fm available --model system)", ping["fmAvailable"], ping["fmMessage"])
-    for name in ["name.json", *(["organize.json"] if organize_mode() == "nested" else list(FALLBACK_SCHEMA_COMMANDS))]:
+    if ping["licenseRequired"]:
+        check("fm terms accepted", False, f"run: {LICENSE_FIX}")
+    else:
+        check("model available (fm available --model system)", ping["fmAvailable"], ping["fmMessage"])
+    for name in ["name.json", *(list(FALLBACK_SCHEMA_COMMANDS) if organize_mode() == "two-call" else ["organize.json"])]:
         path = os.path.join(SCHEMAS, name)
         readable = os.path.isfile(path) and os.path.getsize(path) > 0
-        check(f"schema {name}", readable, path if readable else "missing: run diagonal-host --install-schemas")
+        hint = f"written on their own after {LICENSE_FIX}" if ping["licenseRequired"] else "missing: run diagonal-host --install-schemas"
+        check(f"schema {name}", readable, path if readable else hint)
     check("allowed origin pinned", "<" not in ALLOWED_ORIGIN, ALLOWED_ORIGIN)
     if ping["fmAvailable"] and schema_path("name.json"):
         reply = handle({"v": 1, "id": "selftest", "op": "name", "payload": json.loads(json.dumps(FIXTURE)), "opts": {"timeoutMs": 45000}})

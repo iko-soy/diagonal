@@ -107,7 +107,7 @@ class Ping(HostCase):
         r = self.call("ping")
         self.assertTrue(r["ok"], r)
         self.assertTrue(r["result"]["schemasOk"])
-        self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "organize.json"])
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "organize.json"])
 
     def test_ping_without_fm(self):
         self.env["DIAGONAL_FM"] = os.path.join(self.tmp, "missing-fm")
@@ -124,10 +124,9 @@ class Name(HostCase):
         self.assertEqual(r["result"], {"title": "Rust async runtimes", "emoji": "🦀"})
         self.assertGreater(r["meta"]["promptChars"], 0)
         argv = [a for a in self.argv_log() if a[0] == "respond"][0]
-        self.assertEqual(argv[:6], ["respond", "--model", "system", "--no-stream", "--schema", os.path.join(self.support, "schemas", "name.json")])
-        self.assertEqual(argv[6], "--")
-        self.assertIn("tokio.rs", argv[7])
-        self.assertEqual(len(argv), 8)
+        self.assertEqual(argv, ["respond", "--model", "system", "--no-stream", "--schema", os.path.join(self.support, "schemas", "name.json")])
+        # The prompt goes on stdin, never into argv where `ps` would show tab titles.
+        self.assertIn("tokio.rs", self.stdin_log()[0])
 
     def test_json_wrapped_in_prose_and_fence(self):
         self.respond('Sure! Here it is:\n```json\n{"title": "Rust async", "emoji": "🦀"}\n```')
@@ -140,16 +139,34 @@ class Name(HostCase):
         r = self.call("name", {"items": items})
         self.assertEqual(r["result"]["emoji"], "💻")
 
-    def test_pcc_only_when_asked(self):
+    def test_pcc_falls_back_to_the_on_device_model(self):
+        # fm on macOS 27 rejects --model pcc; an older setting must not break naming.
         self.respond(json.dumps({"title": "Rust async", "emoji": "🦀"}))
-        self.call("name", {"items": ITEMS3}, model="pcc")
+        r = self.call("name", {"items": ITEMS3}, model="pcc")
+        self.assertTrue(r["ok"], r)
         argv = [a for a in self.argv_log() if a[0] == "respond"][0]
-        self.assertEqual(argv[1:3], ["--model", "pcc"])
+        self.assertEqual(argv[1:3], ["--model", "system"])
+
+    def test_guardrail_refusal_is_retried_permissively_once(self):
+        self.control({"respond_queue": [
+            {"stderr": "Error: The model's safety guardrails were triggered.\n", "exit": 1},
+            {"stdout": json.dumps({"title": "Rust async", "emoji": "🦀"})},
+        ]})
+        r = self.call("name", {"items": ITEMS3})
+        self.assertTrue(r["ok"], r)
+        calls = [a for a in self.argv_log() if a[0] == "respond"]
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("--guardrails", calls[0])
+        self.assertEqual(calls[1][-2:], ["--guardrails", "permissive-content-transformations"])
+
+    def test_context_overflow_is_over_budget(self):
+        self.respond(stderr="Error: The session's transcript exceeded the model's context size.\n", exit=1)
+        self.assertEqual(self.call("name", {"items": ITEMS3})["error"]["code"], "OVER_BUDGET")
 
     def test_prompt_never_contains_tab_ids(self):
         self.respond(json.dumps({"title": "Rust async", "emoji": "🦀"}))
         self.call("name", {"items": [dict(it, id=987654) for it in ITEMS3]})
-        prompt = [a for a in self.argv_log() if a[0] == "respond"][0][-1]
+        prompt = self.stdin_log()[0]
         self.assertNotIn("987654", prompt)
 
 
@@ -184,11 +201,11 @@ class ErrorCodes(HostCase):
         self.expect("OVER_BUDGET", stderr="The prompt exceeds the context window", exit=1)
 
     def test_over_budget_precheck_reports_allowed_items(self):
-        big = [{"title": "t" * 120, "url": "https://example.com/" + "p" * 280, "description": "d" * 300} for _ in range(30)]
+        big = [{"title": "t" * 120, "url": "https://example.com/" + "p" * 280, "description": "d" * 300} for _ in range(60)]
         r = self.call("name", {"items": big})
         self.assertEqual(r["error"]["code"], "OVER_BUDGET")
         self.assertGreaterEqual(r["error"]["allowedItems"], 1)
-        self.assertLess(r["error"]["allowedItems"], 30)
+        self.assertLess(r["error"]["allowedItems"], 60)
         self.assertEqual([a for a in self.argv_log() if a[0] == "respond"], [])
 
     def test_guardrail(self):
@@ -223,7 +240,7 @@ class ErrorCodes(HostCase):
     def test_strict_retry_appends_line(self):
         self.respond(json.dumps({"title": "Rust async", "emoji": "🦀"}))
         self.call("name", {"items": ITEMS3}, strict=True)
-        prompt = [a for a in self.argv_log() if a[0] == "respond"][0][-1]
+        prompt = self.stdin_log()[0]
         self.assertIn("Reply with only the object", prompt)
 
 
@@ -262,7 +279,7 @@ class Organize(HostCase):
         self.assertEqual(groups[-1]["title"], "Rust async")
         self.assertEqual(groups[-1]["members"], [0, 1, 2])
         self.assertEqual(r["result"]["leftovers"], [5])
-        prompts_sent = [a[-1] for a in self.argv_log() if a[0] == "respond"]
+        prompts_sent = self.stdin_log()
         self.assertEqual(len(prompts_sent), 2)
         self.assertIn("1 | Rust async", prompts_sent[1])
 
@@ -273,13 +290,40 @@ class InstallSchemas(HostCase):
             os.remove(os.path.join(self.support, "schemas", f))
         code, _, p = self.run_host(args=["--install-schemas"])
         self.assertEqual(code, 0, p.stderr)
-        self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "organize.json"])
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "organize.json"])
+
+    def test_nested_object_gets_its_schema_from_fm_first(self):
+        # Real fm: `--object groups` must be followed by `--schema <json>` for the group's own schema.
+        for f in os.listdir(os.path.join(self.support, "schemas")):
+            os.remove(os.path.join(self.support, "schemas", f))
+        code, _, p = self.run_host(args=["--install-schemas"])
+        self.assertEqual(code, 0, p.stderr)
+        calls = [a for a in self.argv_log() if a[0] == "schema"]
+        group = next(a for a in calls if "Group" in a)
+        self.assertIn("--optional", group)  # "existing" is left out for new groups
+        organize = next(a for a in calls if "Organized" in a)
+        i = organize.index("--object")
+        self.assertEqual(organize[i + 1:i + 3], ["groups", "--schema"])
+        self.assertIn('"args"', organize[i + 3])  # the fake fm's output for the Group schema
+        self.assertEqual(organize[i + 4], "--array")
+
+    def test_schemas_from_an_older_host_are_rewritten(self):
+        # Hosts before schema version 2 could not build the nested schema on real fm and fell back to two calls.
+        d = os.path.join(self.support, "schemas")
+        for f in os.listdir(d):
+            os.remove(os.path.join(d, f))
+        for name in ("name.json", "organize-labels.json", "organize-assign.json"):
+            open(os.path.join(d, name), "w").write("{}")
+        r = self.call("ping")
+        self.assertTrue(r["result"]["schemasOk"], r)
+        self.assertEqual(r["result"]["organizeMode"], "nested")
+        self.assertEqual(open(os.path.join(d, "version")).read().strip(), host.SCHEMA_VERSION)
 
     def test_falls_back_to_two_flat_schemas(self):
         self.control({"schema_nested": False})
         code, _, p = self.run_host(args=["--install-schemas"])
         self.assertEqual(code, 0, p.stderr)
-        self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "organize-assign.json", "organize-labels.json"])
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "organize-assign.json", "organize-labels.json"])
 
 
     def test_first_use_writes_missing_schemas(self):

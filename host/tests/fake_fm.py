@@ -7,7 +7,9 @@ control.json keys:
   schema_nested:  false → `fm schema` with --object fails (simulates no nested-array support)
   schema_fail:    true → every `fm schema` fails
   license:        true → every command exits 69 with the terms notice, as fm does before `sudo fm license`
-Every invocation's argv is appended to argv.log as one JSON line.
+Every invocation's argv is appended to argv.log as one JSON line; `fm respond` also appends its stdin
+(the prompt) to stdin.log. Like the real fm: `--object` must be followed by `--schema <json>`, and the only
+--model is "system".
 """
 import json
 import os
@@ -41,14 +43,21 @@ def main():
         spec = {"stderr": LICENSE_NOTICE, "exit": 69}
     elif cmd == "available":
         spec = control.get("available", {"stdout": "available", "exit": 0})
+    elif "--model" in argv and argv[argv.index("--model") + 1] != "system":
+        spec = {"stderr": f"Error: The value '{argv[argv.index('--model') + 1]}' is invalid for '--model <model>'. Please provide one of 'system'.\n", "exit": 64}
     elif cmd == "schema":
         if control.get("schema_fail"):
             spec = {"stderr": "error: schema generation failed", "exit": 1}
         elif "--object" in argv and control.get("schema_nested", True) is False:
             spec = {"stderr": "error: unknown option --object", "exit": 64}
+        elif "--object" in argv and argv[argv.index("--object") + 2:argv.index("--object") + 3] != ["--schema"]:
+            name = argv[argv.index("--object") + 1]
+            spec = {"stderr": f"Error: SchemaError(errorDescription: Optional(\"--object '{name}' must be followed by --schema\"))\n", "exit": 1}
         else:
             spec = {"stdout": json.dumps({"schema": argv[3] if len(argv) > 3 else "x", "args": argv[1:]}), "exit": 0}
     elif cmd == "respond":
+        with open(os.path.join(HERE, "stdin.log"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(sys.stdin.read()) + "\n")
         queue = control.get("respond_queue") or []
         if queue:
             spec = queue.pop(0)

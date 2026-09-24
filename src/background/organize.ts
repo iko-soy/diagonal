@@ -8,9 +8,9 @@ import { markDirty, type State } from "./state";
 
 /** Section 3/9: "Organize all tabs" — cluster ungrouped tabs in batches sized to the model's window. */
 
-export const ORGANIZE_ITEM_CAP = 18;
+export const ORGANIZE_ITEM_CAP = 36;
 export const EXISTING_GROUPS_CAP = 12;
-export const CHAR_BUDGET = 10_000;
+export const CHAR_BUDGET = 24_000; // matches the host's budget for fm's ~8k-token context
 export const INSTRUCTION_CHARS = 1_400; // ~320 tokens of rules, emoji and colour lists
 export const EXISTING_GROUP_CHARS = 90;
 export const UNDO_WINDOW_MS = 3_600_000;

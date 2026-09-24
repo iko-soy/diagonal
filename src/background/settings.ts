@@ -1,6 +1,7 @@
 /** Section 10: every setting, its default and its range. */
 export type TidyMode = "ask" | "auto" | "off";
-export type ModelChoice = "system" | "pcc";
+/** fm on macOS 27 has only the on-device model; a stored "pcc" from older versions reads as "system". */
+export type ModelChoice = "system";
 
 export interface Settings {
   openerGrouping: boolean;
@@ -78,8 +79,7 @@ export function withDefaults(raw: unknown): Settings {
       (s as any)[key] = range ? Math.min(range[1], Math.max(range[0], Math.round(v))) : v;
     } else if (Array.isArray(def) && Array.isArray(v)) {
       (s as any)[key] = v.filter((x) => typeof x === "string" && x.trim()).map((x: string) => x.trim());
-    } else if (key === "model" && (v === "system" || v === "pcc")) s.model = v;
-    else if (key === "tidyMode" && (v === "ask" || v === "auto" || v === "off")) s.tidyMode = v;
+    } else if (key === "tidyMode" && (v === "ask" || v === "auto" || v === "off")) s.tidyMode = v;
   }
   if (s.archiveAfterHours !== 0 && s.archiveAfterHours < 1) s.archiveAfterHours = 1;
   return s;

@@ -39,7 +39,7 @@ def main():
         print(json.dumps({"schema": argv[1:]}))
         return
     if argv[0] == "respond":
-        prompt = argv[-1]
+        prompt = sys.stdin.read()
         if prompt.startswith("You name"):
             found = topic_of(prompt.split("Tabs (", 1)[-1]) or ("Reading list", "📚", "grey")
             print(json.dumps({"title": found[0], "emoji": found[1]}))

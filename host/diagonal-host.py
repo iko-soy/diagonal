@@ -36,19 +36,25 @@ SUPPORT = os.environ.get("DIAGONAL_SUPPORT_DIR", os.path.expanduser("~/Library/A
 SCHEMAS = os.path.join(SUPPORT, "schemas")
 LOG_DIR = os.environ.get("DIAGONAL_LOG_DIR", os.path.expanduser("~/Library/Logs/Diagonal"))
 LOG_MAX_BYTES = 5 * 1024 * 1024
-CHAR_BUDGET = 10_000  # ≈ 2,850 tokens of prompt at 3.5 chars/token (section 9); double once 8,192 is confirmed
+# fm's context is about 8,000 tokens for prompt and reply together (measured on macOS 27: 38,000 chars of
+# prompt worked, 40,000 overflowed, ~4.7 chars/token). 24,000 chars leaves room for the reply and dense text.
+CHAR_BUDGET = 24_000
 MAX_REQUEST = 64 * 1024 * 1024
 MAX_REPLY = 1024 * 1024
 OPS = {"ping", "name", "organize"}
 
-# `fm schema` argument lists (section 8). The nested form is unverified on a real macOS 27 machine;
-# when it fails, --install-schemas writes the two flat schemas and `organize` takes two calls.
+# `fm schema` argument lists (section 8), checked against fm on macOS 27. `--object NAME` takes the
+# nested object's schema as JSON from `--schema`; "{Group}" is replaced by the output of SUB_SCHEMAS["Group"].
+# If the nested form fails, --install-schemas writes the two flat schemas and `organize` takes two calls.
+SUB_SCHEMAS = {
+    "Group": ["schema", "object", "--name", "Group",
+              "--string", "title", "--string", "emoji", "--string", "color",
+              "--integer", "existing", "--optional", "--integer", "members", "--array"],
+}
 SCHEMA_COMMANDS = {
     "name.json": ["schema", "object", "--name", "GroupName", "--string", "title", "--string", "emoji"],
     "organize.json": ["schema", "object", "--name", "Organized",
-                      "--object", "groups", "--array",
-                      "--string", "title", "--string", "emoji", "--string", "color",
-                      "--integer", "existing", "--integer", "members", "--array",
+                      "--object", "groups", "--schema", "{Group}", "--array",
                       "--integer", "leftovers", "--array"],
 }
 FALLBACK_SCHEMA_COMMANDS = {
@@ -146,9 +152,8 @@ def validate_request(req):
             {"g": n, "title": _trim(g.get("title"), 60), "samples": [_trim(s, 60) for s in (g.get("samples") or [])[:2]]}
             for n, g in enumerate(groups[:12]) if isinstance(g, dict)
         ]
-    model = opts.get("model", "system")
-    if model not in ("system", "pcc"):
-        raise Fail("BAD_REQUEST", "opts.model must be system or pcc")
+    # fm on macOS 27 only has the on-device model; older extensions may still ask for "pcc".
+    opts["model"] = "system"
     return req
 
 
@@ -181,7 +186,7 @@ def classify(stderr, returncode=None):
 
 
 def fm_env():
-    return {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", ""), "LANG": "en_US.UTF-8"}
+    return {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", ""), "LANG": "en_US.UTF-8", "NO_COLOR": "1"}
 
 
 def schema_path(name):
@@ -212,10 +217,26 @@ def extract_json(stdout):
     raise Fail("BAD_MODEL_OUTPUT", "no JSON object in fm output", raw=text[:2000])
 
 
+# fm's safety layer sometimes refuses harmless tab lists. Naming tabs only restates their own text, so a
+# refused call is retried once in the mode Apple provides for transforming given content.
+PERMISSIVE = ["--guardrails", "permissive-content-transformations"]
+
+
 def run_fm(prompt, schema, model, timeout_s):
-    args = [FM, "respond", "--model", model, "--no-stream", "--schema", schema, "--", prompt]
     try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
+        return _run_fm(prompt, schema, model, timeout_s, [])
+    except Fail as f:
+        if f.code != "GUARDRAIL":
+            raise
+    return _run_fm(prompt, schema, model, timeout_s, PERMISSIVE)
+
+
+def _run_fm(prompt, schema, model, timeout_s, extra):
+    # The prompt goes on stdin (fm reads it there when no prompt argument is given), so tab titles never
+    # show up in the process list. fm has no timeout of its own; subprocess enforces ours.
+    args = [FM, "respond", "--model", model, "--no-stream", "--schema", schema, *extra]
+    try:
+        p = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
     except FileNotFoundError:
         raise Fail("MODEL_UNAVAILABLE", f"fm not found at {FM} — requires macOS 27")
     except subprocess.TimeoutExpired:
@@ -264,6 +285,19 @@ def op_ping(_payload, _opts):
     return reply
 
 
+# Bumped when SCHEMA_COMMANDS change, so schemas written by an older host are rewritten. Version 2: the
+# nested organize schema in the form fm actually accepts (older hosts fell back to two calls).
+SCHEMA_VERSION = "2"
+
+
+def schemas_current():
+    try:
+        with open(os.path.join(SCHEMAS, "version"), encoding="utf-8") as f:
+            return f.read().strip() == SCHEMA_VERSION
+    except OSError:
+        return False
+
+
 def schemas_ok():
     return bool(schema_path("name.json")) and organize_mode() != "missing"
 
@@ -271,7 +305,7 @@ def schemas_ok():
 def ensure_schemas():
     """Write the schema files on first use, so install order does not matter (e.g. the fm terms were
     accepted after the installer ran). stdout is the native-messaging channel: progress lines are swallowed."""
-    if schemas_ok():
+    if schemas_ok() and schemas_current():
         return
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
@@ -332,7 +366,7 @@ def handle(req):
         raw_opts = req.get("opts") or {}
         timeout_ms = raw_opts.get("timeoutMs", 45000)
         timeout_ms = timeout_ms if isinstance(timeout_ms, (int, float)) and not isinstance(timeout_ms, bool) else 45000
-        opts = {"model": raw_opts.get("model", "system"), "strict": bool(raw_opts.get("strict")),
+        opts = {"model": "system", "strict": bool(raw_opts.get("strict")),
                 "timeout_s": max(5.0, min(120.0, timeout_ms / 1000))}
         op = req["op"]
         if op == "ping":
@@ -382,6 +416,22 @@ def install_schemas():
 
     def write(name, args):
         """True when written; "license" or "rejected" (fm ran and refused) or "error" otherwise."""
+        subs = {}
+        for key, sub_args in SUB_SCHEMAS.items():
+            if "{%s}" % key not in args:
+                continue
+            try:
+                p = subprocess.run([FM, *sub_args], capture_output=True, text=True, timeout=30, env=fm_env())
+            except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+                print(f"  {name}: fm failed ({e})", file=sys.stderr)
+                return "error"
+            if license_needed(p.returncode, p.stdout + p.stderr):
+                return "license"
+            if p.returncode != 0 or not p.stdout.strip():
+                print(f"  {name}: fm schema ({key}) exited {p.returncode}: {p.stderr.strip()[:200]}", file=sys.stderr)
+                return "rejected"
+            subs["{%s}" % key] = p.stdout.strip()
+        args = [subs.get(a, a) for a in args]
         try:
             p = subprocess.run([FM, *args], capture_output=True, text=True, timeout=30, env=fm_env())
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -421,6 +471,9 @@ def install_schemas():
             pass
         for name, args in FALLBACK_SCHEMA_COMMANDS.items():
             ok &= write(name, args) is True
+    if ok:
+        with open(os.path.join(SCHEMAS, "version"), "w", encoding="utf-8") as f:
+            f.write(SCHEMA_VERSION + "\n")
     return 0 if ok else 1
 
 

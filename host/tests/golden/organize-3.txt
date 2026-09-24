@@ -4,6 +4,7 @@ Rules:
 - Put each tab index into exactly one group, or into leftovers if it fits nowhere.
 - A group needs at least 2 tabs. Prefer fewer, broader groups; at most 1 new groups.
 - Reuse an existing group when a tab fits it: set "existing" to that group's number and leave title, emoji and color empty.
+- For a new group, leave "existing" out.
 - New groups: title of 2 to 4 words in sentence case, one emoji from: 💻 🖥️ ⌨️ 🔧 🛠️ ⚙️ 🐛 🦀 🐍 🐧 📦 🧩 🔌 🤖 🧠 🗄️ ☁️ 🔒 📚 📖 📰 📝 🔖 ✍️ 📄 🗞️ 📜 🛒 🛍️ 🏷️ 👟 👕 🎁 💳 ✈️ 🗺️ 🏨 🚆 🚗 🏖️ ⛰️ 🧳 🌍 🚲 🎬 🎵 🎮 📺 🎧 📷 🎨 🎙️ 🍿 🎸 💼 📊 📈 📅 🗂️ 📋 📌 ✅ 📎 🏢 👥 💰 🏦 💵 📉 🪙 🧾 💹 🔬 🧪 🧬 🔭 ⚗️ 🧮 📐 🌌 🍳 🍕 🍜 🥗 ☕ 🍷 🍰 🥖 🍣 🏠 🛋️ 🪴 🔨 🧹 🐶 🐱 👶 🩺 💊 🏃 🧘 🏋️ 🦷 🍎 💬 ✉️ 📞 📣 🗣️ 🧭 ⭐ 🔥 💡 🎯 🏆 ⚽ 🎓 🌱 🎉 🔍 ⚖️ 🏛️ 🗳️ 💤 🔄, one color from: grey, blue, red, yellow, green, pink, purple, cyan, orange.
 - Group by topic or task, not by website, unless the tabs are the same site and nothing else links them.
 - Write titles in the language most tab titles use.

@@ -69,6 +69,7 @@ def _organize_rules(max_groups, strict):
         "- Put each tab index into exactly one group, or into leftovers if it fits nowhere.",
         f"- A group needs at least 2 tabs. Prefer fewer, broader groups; at most {max_groups} new groups.",
         '- Reuse an existing group when a tab fits it: set "existing" to that group\'s number and leave title, emoji and color empty.',
+        '- For a new group, leave "existing" out.',
         f"- New groups: title of 2 to 4 words in sentence case, one emoji from: {EMOJI_LIST}, one color from: {', '.join(COLORS)}.",
         "- Group by topic or task, not by website, unless the tabs are the same site and nothing else links them.",
         "- Write titles in the language most tab titles use.",

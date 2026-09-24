@@ -9,7 +9,7 @@ export const HOST_MANIFEST_PATH = `${HOST_MANIFEST_DIR}${HOST_NAME}.json`;
 export type Op = "ping" | "name" | "organize";
 
 export interface HostOpts {
-  model: "system" | "pcc";
+  model: "system";
   timeoutMs: number;
   emoji: boolean;
   strict?: boolean; // append "reply with only the object" (BAD_MODEL_OUTPUT retry)

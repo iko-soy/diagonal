@@ -130,13 +130,16 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 - **An Organize group whose title fails validation is still created,** with the hostname as a placeholder, and the naming loop names it.
 - **Restarts.** Tab and group IDs change when the browser restarts, so records are matched to live groups by title and colour, which keeps managed groups managed.
 
-## Not verified on a real Mac yet
+## How fm behaves on macOS 27
 
-Everything was tested against a fake `fm`. These are open until someone runs it on macOS 27 (section 16 of the spec):
+Checked on a Mac running macOS 27.0 (26A428) on 2026-09-24; the tests' fake `fm` follows it.
 
-- **Confirmed on a Mac:** `fm` is at `/usr/bin/fm`, and until an admin runs `sudo fm license` every `fm` command exits 69 with a terms notice. The installer offers the terms in the terminal; if they are declined, Diagonal reports `LICENSE_REQUIRED` with the fix. The host writes its schemas on first use, so install order does not matter.
-- The `fm schema` flags. `diagonal-host --install-schemas` tries the nested organize schema and falls back to the two flat schemas plus two calls if that fails. The flags are in `SCHEMA_COMMANDS` at the top of `host/diagonal-host.py`.
-- `fm` stderr wording. `classify()` matches keywords, so an unexpected message shows as `FM_ERROR` with the raw text on the settings page.
-- Whether `fm respond` can read the prompt from stdin. Until then, the prompt is an argument and is briefly visible in `ps`.
-- The context window. `CHAR_BUDGET` is 10,000 characters, assuming 4,096 tokens. Double it (and `NAME_ITEM_CAP` / `ORGANIZE_ITEM_CAP`) once 8,192 is confirmed.
-- The Nix flake builds both packages on x86_64-linux, and `.github/workflows/nix.yml` builds them on Linux and Apple silicon on every push. The home-manager module has not been activated on a real Mac.
+- `fm` is at `/usr/bin/fm`. Until an admin runs `sudo fm license`, every command exits 69 with a terms notice; `fm license --status` reports the state. The installer offers the terms in the terminal; if they are declined, Diagonal reports `LICENSE_REQUIRED` with the fix. The host writes its schemas on first use, so install order does not matter.
+- `fm schema object` builds the schemas. A nested object needs its own schema: `--object groups --schema "<json from another fm schema object>" --array`. The host does that for `organize.json` (see `SUB_SCHEMAS` in `host/diagonal-host.py`) and keeps the two flat schemas plus two calls as a fallback.
+- `fm respond` reads the prompt from stdin when no prompt argument is given, so the host never puts tab titles in the process list. There is no timeout flag; the host enforces its own.
+- The only model is `system` (`--model pcc` is rejected), so Diagonal always uses the on-device model.
+- The context is about 8,000 tokens for prompt and reply together (38,000 characters worked, 40,000 overflowed). `CHAR_BUDGET` is 24,000 characters.
+- The safety layer sometimes refuses harmless text ("The model's safety guardrails were triggered."). The host retries such a call once with `--guardrails permissive-content-transformations`.
+- Reply JSON key order is not stable, and the model can list a tab both in a group and in leftovers; the validator handles both.
+
+Still open: the Nix flake builds both packages on Linux and Apple silicon in CI, but the home-manager module has not been activated on a real Mac.

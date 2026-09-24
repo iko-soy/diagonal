@@ -8,8 +8,7 @@ For each normal (not incognito) tab: its title, its address and the page's `<met
 
 ## Where it goes
 
-- **To Apple's on-device model on your Mac.** Diagonal passes that text to Apple's `fm` tool through a small helper program on your Mac (the native messaging host installed with `brew install iko-soy/tap/diagonal`). By default the model runs on your Mac and nothing leaves it.
-- **To Apple's Private Cloud Compute, only if you choose it.** Settings → Privacy → Model offers Apple's larger server model. With that picked, the same text goes to Apple under Apple's Private Cloud Compute terms. It is off by default.
+Only to Apple's on-device model on your Mac. Diagonal passes that text to Apple's `fm` tool through a small helper program on your Mac (the native messaging host installed with `brew install iko-soy/tap/diagonal`). The model runs on the Mac, and nothing leaves it.
 
 Diagonal has no server of its own. It sends nothing to its developers and has no analytics. The only other request is the browser loading each archived tab's site icon from that site when you open the popup.
 

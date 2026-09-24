@@ -8,7 +8,7 @@ import type { GroupRecord, HostError, State } from "./state";
 
 /** Section 6: debounced, sticky, sibling-aware naming of managed groups. */
 
-export const NAME_ITEM_CAP = 24;
+export const NAME_ITEM_CAP = 48;
 export const SAMPLE_EACH = 8;
 export const QUEUE_GAP_MS = 250;
 export const FALLBACK_ALARM_MS = 30_000;

@@ -8,9 +8,9 @@ const t = (n: number, over: { title?: string; description?: string } = {}) => ({
 });
 
 describe("batching", () => {
-  it("caps batches at 18 items", () => {
-    const b = makeBatches(Array.from({ length: 60 }, (_, i) => t(i)));
-    expect(b.map((x) => x.length)).toEqual([18, 18, 18, 6]);
+  it("caps batches at 36 items", () => {
+    const b = makeBatches(Array.from({ length: 80 }, (_, i) => t(i)));
+    expect(b.map((x) => x.length)).toEqual([36, 36, 8]);
   });
 
   it("also respects the character budget", () => {

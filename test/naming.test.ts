@@ -20,14 +20,14 @@ describe("membership hash", () => {
 });
 
 describe("large group sampling", () => {
-  it("sends the 8 most recent, the first 8 and the last 8, in strip order, capped at 24", () => {
-    const ms = Array.from({ length: 40 }, (_, i) => member(i, { lastActive: i === 20 || i === 21 ? 1000 + i : i }));
+  it("sends the 16 most recent, the first 16 and the last 16, in strip order, capped at 48", () => {
+    const ms = Array.from({ length: 80 }, (_, i) => member(i, { lastActive: i === 40 || i === 41 ? 1000 + i : i }));
     const picked = sampleMembers(ms);
-    expect(picked.length).toBeLessThanOrEqual(24);
+    expect(picked.length).toBeLessThanOrEqual(48);
     const ids = picked.map((m) => m.id);
     expect(ids).toEqual([...ids].sort((a, b) => a - b));
-    for (const id of [0, 7, 32, 39, 20, 21]) expect(ids).toContain(id);
-    expect(ids).not.toContain(10);
+    for (const id of [0, 15, 64, 79, 40, 41]) expect(ids).toContain(id);
+    expect(ids).not.toContain(30);
   });
 
   it("leaves small groups whole", () => {

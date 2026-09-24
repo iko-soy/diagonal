@@ -15,7 +15,7 @@ h1{font-size:40px;margin:0 0 16px;line-height:1.15} p{font-size:20px;line-height
 
 const pages = [
   { file: "screenshot-popup.png", w: 1280, h: 800, html: `<div><h1>Tabs group themselves</h1><p>Open and close tabs as usual. Diagonal groups related tabs and names each group with Apple's on-device model.</p></div><img class="shot" src="${img(join(shots, "popup.png"))}" style="height:560px">` },
-  { file: "screenshot-settings.png", w: 1280, h: 800, html: `<div><h1>Private by design</h1><p>The model runs on your Mac. It sees a tab's title, address and description, and nothing leaves the Mac unless you pick Apple's Private Cloud Compute.</p></div><div class="shot" style="width:560px;height:680px;overflow:hidden"><img src="${img(join(shots, "options.png"))}" style="width:560px;display:block"></div>` },
+  { file: "screenshot-settings.png", w: 1280, h: 800, html: `<div><h1>Private by design</h1><p>The model runs on your Mac and sees only a tab's title, address and description. Nothing leaves the Mac.</p></div><div class="shot" style="width:560px;height:680px;overflow:hidden"><img src="${img(join(shots, "options.png"))}" style="width:560px;display:block"></div>` },
   { file: "promo-small.png", w: 440, h: 280, html: `<img src="${icon}" style="width:120px"><div style="font-size:34px;font-weight:700">Diagonal</div>`, gap: 24 },
 ];
 

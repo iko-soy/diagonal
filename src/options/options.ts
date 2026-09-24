@@ -38,9 +38,8 @@ const SECTIONS: Section[] = [
   },
   {
     title: "Privacy",
-    intro: "What the model sees when it names a group.",
+    intro: "What Apple's on-device model sees when it names a group. It runs on this Mac; nothing leaves it.",
     fields: [
-      { key: "model", label: "Model", kind: "select", options: [["system", "On this Mac"], ["pcc", "Private Cloud Compute"]] },
       { key: "sendDescription", label: "Include page descriptions", help: "Off: titles and addresses only.", kind: "bool" },
       { key: "sendFullUrl", label: "Include full addresses", help: "Off: just the site name.", kind: "bool" },
     ],
@@ -97,8 +96,6 @@ function applyDependencies(): void {
     row.classList.toggle("off", !on);
     row.querySelectorAll<HTMLInputElement>("input, select, textarea").forEach((c) => (c.disabled = !on));
   }
-  const w = document.getElementById("pcc-warning");
-  if (w) w.hidden = settings.model !== "pcc";
 }
 
 function fieldRow(f: Field): HTMLElement {
@@ -134,12 +131,6 @@ function fieldRow(f: Field): HTMLElement {
       id, className: "wide", spellcheck: false,
       value: (value as string[]).join("\n"),
       onchange: (e: Event) => save({ [f.key]: (e.target as HTMLTextAreaElement).value.split("\n") }),
-    }));
-  }
-  if (f.key === "model") {
-    row.append(el("div", {
-      className: "warn-text", id: "pcc-warning",
-      textContent: "Private Cloud Compute sends tab titles, addresses and descriptions to Apple's servers. On this Mac, nothing leaves the computer.",
     }));
   }
   rows.push({ field: f, row });

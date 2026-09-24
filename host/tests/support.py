@@ -63,6 +63,8 @@ class HostCase(unittest.TestCase):
         for name in ("name.json", "organize.json"):
             with open(os.path.join(self.support, "schemas", name), "w") as f:
                 f.write("{}")
+        with open(os.path.join(self.support, "schemas", "version"), "w") as f:
+            f.write(host.SCHEMA_VERSION + "\n")
         self.control({})
         self.env = {**os.environ, "DIAGONAL_FM": self.fm, "DIAGONAL_SUPPORT_DIR": self.support,
                     "DIAGONAL_LOG_DIR": os.path.join(self.tmp, "logs"), "HOME": self.tmp}
@@ -79,6 +81,13 @@ class HostCase(unittest.TestCase):
 
     def argv_log(self):
         path = os.path.join(self.tmp, "argv.log")
+        if not os.path.exists(path):
+            return []
+        return [json.loads(line) for line in open(path, encoding="utf-8")]
+
+    def stdin_log(self):
+        """The prompts `fm respond` read on stdin, in call order."""
+        path = os.path.join(self.tmp, "stdin.log")
         if not os.path.exists(path):
             return []
         return [json.loads(line) for line in open(path, encoding="utf-8")]

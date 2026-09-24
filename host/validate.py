@@ -161,6 +161,8 @@ def validate_organize(out, payload):
         if not members:
             continue
         ex = g.get("existing")
+        if isinstance(ex, list):  # fm has returned the optional integer as [] or [n]
+            ex = ex[0] if len(ex) == 1 else None
         if isinstance(ex, int) and not isinstance(ex, bool) and 0 <= ex < n_existing:
             joins.append({"title": "", "emoji": "", "color": "", "existing": ex, "members": members})
             continue

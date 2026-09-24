@@ -36,9 +36,13 @@ SUPPORT = os.environ.get("DIAGONAL_SUPPORT_DIR", os.path.expanduser("~/Library/A
 SCHEMAS = os.path.join(SUPPORT, "schemas")
 LOG_DIR = os.environ.get("DIAGONAL_LOG_DIR", os.path.expanduser("~/Library/Logs/Diagonal"))
 LOG_MAX_BYTES = 5 * 1024 * 1024
-# fm's context is about 8,000 tokens for prompt and reply together (measured on macOS 27: 38,000 chars of
-# prompt worked, 40,000 overflowed, ~4.7 chars/token). 24,000 chars leaves room for the reply and dense text.
-CHAR_BUDGET = 24_000
+# fm's context holds prompt and reply together. Measured on macOS 27 with the topics schema: a 7,400-token
+# prompt worked, 13,100 overflowed. 7,000 tokens leaves room for the reply.
+TOKEN_BUDGET = 7_000
+# Tokens per character, measured with `fm count-tokens` on tab lists: English 0.26, Russian 0.31, Chinese 0.54,
+# Japanese 0.51. The estimate rounds up, so a prompt it calls small enough is; near the limit fm counts exactly.
+TOKENS_PER_CHAR = {"ascii": 0.3, "cjk": 0.6, "other": 0.36}
+EXACT_COUNT_ABOVE = 0.75  # of TOKEN_BUDGET
 MAX_REQUEST = 64 * 1024 * 1024
 MAX_REPLY = 1024 * 1024
 OPS = {"ping", "name", "organize"}
@@ -191,20 +195,41 @@ def schema_path(name):
 DESC_CAPS = (500, 200, 0)
 
 
+def estimate_tokens(prompt):
+    n = 0.0
+    for ch in prompt.instructions + prompt.text:
+        n += TOKENS_PER_CHAR["ascii" if ch < "\x80" else "cjk" if validate.CJK.match(ch) else "other"]
+    return int(n) + 60  # fm's own framing around instructions and prompt
+
+
+def count_tokens(prompt):
+    """fm's exact count (under 0.1 s), or None when it can't give one."""
+    try:
+        p = subprocess.run([FM, "count-tokens", "-q", "-i", prompt.instructions], input=prompt.text,
+                           capture_output=True, text=True, timeout=10, env=fm_env())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    out = p.stdout.strip()
+    return int(out) if p.returncode == 0 and out.isdigit() else None
+
+
+def prompt_tokens(prompt):
+    estimate = estimate_tokens(prompt)
+    if estimate <= TOKEN_BUDGET * EXACT_COUNT_ABOVE:
+        return estimate
+    return count_tokens(prompt) or estimate
+
+
 def fit(build, n_items):
+    """The prompt with as much page text as fits TOKEN_BUDGET; OVER_BUDGET with how many items would fit if
+    even the titles alone are too long."""
     for cap in DESC_CAPS:
         prompt = build(cap)
-        if prompts.size(prompt) <= CHAR_BUDGET:
+        tokens = prompt_tokens(prompt)
+        if tokens <= TOKEN_BUDGET:
             return prompt
-    check_budget(prompt, n_items)  # raises OVER_BUDGET with how many items would fit
-    return prompt
-
-
-def check_budget(prompt, n_items):
-    size = prompts.size(prompt)
-    if size > CHAR_BUDGET:
-        allowed = max(1, int(n_items * CHAR_BUDGET / size))
-        raise Fail("OVER_BUDGET", f"prompt is {size} chars, budget {CHAR_BUDGET}", retryable=True, allowedItems=allowed)
+    allowed = max(1, int(n_items * TOKEN_BUDGET / tokens))
+    raise Fail("OVER_BUDGET", f"prompt is about {tokens} tokens, budget {TOKEN_BUDGET}", retryable=True, allowedItems=allowed)
 
 
 def extract_json(stdout):
@@ -243,7 +268,9 @@ def run_fm(prompt, schema, model, timeout_s):
 def _run_fm(prompt, schema, model, timeout_s, extra):
     # The tab text goes on stdin (fm reads it there when no prompt argument is given), so it never shows up
     # in the process list. fm has no timeout of its own; subprocess enforces ours.
-    args = [FM, "respond", "--model", model, "--no-stream", "--schema", schema, "-i", prompt.instructions, *extra]
+    # --greedy: the same tabs get the same topics and name on every run (measured on macOS 27: five runs,
+    # one answer), so groups don't get renamed or reshuffled each time Diagonal looks at them.
+    args = [FM, "respond", "--model", model, "--no-stream", "--greedy", "--schema", schema, "-i", prompt.instructions, *extra]
     try:
         p = subprocess.run(args, input=prompt.text, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
     except FileNotFoundError:

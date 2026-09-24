@@ -6,6 +6,7 @@ control.json keys:
   available:      {"stdout": str, "stderr": str, "exit": int} for `fm available`
   schema_nested:  false → `fm schema` with --object fails (simulates no nested-array support)
   schema_fail:    true → every `fm schema` fails
+  count_tokens:   {"stdout": str, "exit": int} for `fm count-tokens` (default: stdin length / 4)
   license:        true → every command exits 69 with the terms notice, as fm does before `sudo fm license`
 Every invocation's argv is appended to argv.log as one JSON line; `fm respond` also appends its stdin
 (the prompt) to stdin.log. Like the real fm: `--object` must be followed by `--schema <json>`, and the only
@@ -41,6 +42,10 @@ def main():
         spec = {"exit": 0 if agreed else 1}
     elif control.get("license"):
         spec = {"stderr": LICENSE_NOTICE, "exit": 69}
+    elif cmd == "count-tokens":
+        # Like fm: a bare integer. Tests can pin it; otherwise a rough 4 characters per token of the text.
+        text = sys.stdin.read()
+        spec = control.get("count_tokens", {"stdout": f"{len(text) // 4}\n", "exit": 0})
     elif cmd == "available":
         spec = control.get("available", {"stdout": "available", "exit": 0})
     elif "--model" in argv and argv[argv.index("--model") + 1] != "system":

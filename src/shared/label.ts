@@ -9,7 +9,7 @@ export const LABEL_MAX_WORDS = 4;
 
 const QUOTES = /["'“”‘’«»`]/g;
 const HAS_QUOTE = /["'“”‘’«»`]/;
-const TRAILING_PUNCT = /[\s.,;:!?…\-–—]+$/u;
+const TRAILING_PUNCT = /[\s.,;:!?…\-–—。、，！？：；]+$/u;
 
 /** Repair what is repairable; return undefined when the label cannot be made valid. */
 export function repairLabel(raw: unknown): string | undefined {
@@ -24,12 +24,20 @@ export function repairLabel(raw: unknown): string | undefined {
   return isValidLabel(label) ? label : undefined;
 }
 
+/** Chinese, Japanese and Korean titles have no spaces between words, so they're checked by length instead. */
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/g;
+export const CJK_MIN_CHARS = 2;
+export const CJK_MAX_CHARS = 16;
+
+const isCjk = (label: string): boolean => (label.match(CJK)?.length ?? 0) * 2 > label.replace(/ /g, "").length;
+
 export function isValidLabel(label: string): boolean {
   const words = label.split(" ").filter(Boolean);
+  const cjk = isCjk(label);
   return (
-    label.length >= LABEL_MIN_CHARS &&
-    label.length <= LABEL_MAX_CHARS &&
-    words.length >= LABEL_MIN_WORDS &&
+    label.length >= (cjk ? CJK_MIN_CHARS : LABEL_MIN_CHARS) &&
+    label.length <= (cjk ? CJK_MAX_CHARS : LABEL_MAX_CHARS) &&
+    words.length >= (cjk ? 1 : LABEL_MIN_WORDS) &&
     words.length <= LABEL_MAX_WORDS &&
     !HAS_QUOTE.test(label) &&
     !TRAILING_PUNCT.test(label) &&

@@ -8,7 +8,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 COLORS = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
 BANNED_WORDS = {"tab", "tabs", "group", "groups", "misc", "various", "stuff"}
 QUOTES = "\"'“”‘’«»`"
-TRAILING_PUNCT = re.compile(r"[\s.,;:!?…\-–—]+$")
+TRAILING_PUNCT = re.compile(r"[\s.,;:!?…\-–—。、，！？：；]+$")
 
 
 class ValidationError(Exception):
@@ -106,11 +106,16 @@ def repair_label(raw):
     return label if is_valid_label(label) else None
 
 
+# Chinese and Japanese titles have no spaces between words, so they're checked by length instead.
+CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
 def is_valid_label(label):
     words = label.split()
+    cjk = len(CJK.findall(label)) * 2 > len(label.replace(" ", ""))
     return (
-        3 <= len(label) <= 28
-        and 2 <= len(words) <= 4
+        (2 <= len(label) <= 16 if cjk else 3 <= len(label) <= 28)
+        and (1 <= len(words) <= 4 if cjk else 2 <= len(words) <= 4)
         and not any(q in label for q in QUOTES)
         and not TRAILING_PUNCT.search(label)
         and not any(w.lower() in BANNED_WORDS for w in words)
@@ -164,7 +169,12 @@ def validate_organize(out, payload):
         if isinstance(ex, list):  # fm has returned the optional integer as [] or [n]
             ex = ex[0] if len(ex) == 1 else None
         if isinstance(ex, int) and not isinstance(ex, bool) and 0 <= ex < n_existing:
-            joins.append({"title": "", "emoji": "", "color": "", "existing": ex, "members": members})
+            # Two topics can both point at one group (its example tabs got different topics): one join each.
+            join = next((j for j in joins if j["existing"] == ex), None)
+            if join:
+                join["members"].extend(members)
+            else:
+                joins.append({"title": "", "emoji": "", "color": "", "existing": ex, "members": members})
             continue
         new.append((members, g))
 

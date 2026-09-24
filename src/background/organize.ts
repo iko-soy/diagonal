@@ -10,7 +10,9 @@ import { markDirty, type State } from "./state";
 
 export const ORGANIZE_ITEM_CAP = 36;
 export const EXISTING_GROUPS_CAP = 12;
-export const CHAR_BUDGET = 24_000; // matches the host's budget for fm's ~8k-token context
+// About the host's 7,000-token budget in English characters. Chinese and Japanese cost about twice the tokens
+// per character, so their characters count double (weightedLength); the host measures exactly and shortens.
+export const CHAR_BUDGET = 24_000;
 export const INSTRUCTION_CHARS = 1_400; // ~320 tokens of rules, emoji and colour lists
 export const EXISTING_GROUP_CHARS = 90;
 export const UNDO_WINDOW_MS = 3_600_000;
@@ -53,9 +55,12 @@ export const maxGroupsFor = (n: number): number => Math.min(8, Math.ceil(n / 3))
 export const organizable = (t: { groupId?: number; pinned?: boolean; url?: string; incognito?: boolean }): boolean =>
   (t.groupId ?? -1) === -1 && !t.pinned && !t.incognito && !isInternalUrl(t.url);
 
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/g;
+export const weightedLength = (s: string): number => s.length + (s.match(CJK)?.length ?? 0);
+
 /** Rough rendered size of one item line, the unit the character budget is spent in. */
 export const itemChars = (m: Pick<Member, "title" | "url" | "description">): number =>
-  Math.min(120, m.title.length) + promptAddress(m.url).length + Math.min(500, m.description?.length ?? 1) + 12;
+  weightedLength(m.title.slice(0, 120)) + promptAddress(m.url).length + weightedLength((m.description ?? " ").slice(0, 500)) + 12;
 
 /** Split tabs (in strip order) into batches of ≤ cap items that also fit the character budget. */
 export function makeBatches<T extends Pick<Member, "title" | "url" | "description">>(

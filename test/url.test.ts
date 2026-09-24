@@ -63,6 +63,10 @@ describe("labels", () => {
   it("validates", () => {
     expect(isValidLabel("Lisbon trip")).toBe(true);
     expect(isValidLabel("Lisbon")).toBe(false);
+    expect(isValidLabel("日本旅行")).toBe(true);
+    expect(isValidLabel("京都の旅行計画")).toBe(true);
+    expect(isValidLabel("日")).toBe(false);
+    expect(repairLabel("日本旅行。")).toBe("日本旅行");
   });
 
   it("emoji outside the list fall back; FE0F is optional", () => {

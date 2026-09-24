@@ -124,9 +124,9 @@ class Name(HostCase):
         self.assertEqual(r["result"], {"title": "Rust async runtimes", "emoji": "🦀"})
         self.assertGreater(r["meta"]["promptChars"], 0)
         argv = [a for a in self.argv_log() if a[0] == "respond"][0]
-        self.assertEqual(argv[:7], ["respond", "--model", "system", "--no-stream", "--schema", os.path.join(self.support, "schemas", "name.json"), "-i"])
-        self.assertIn("You name a browser tab group", argv[7])
-        self.assertEqual(len(argv), 8)
+        self.assertEqual(argv[:8], ["respond", "--model", "system", "--no-stream", "--greedy", "--schema", os.path.join(self.support, "schemas", "name.json"), "-i"])
+        self.assertIn("You name a browser tab group", argv[8])
+        self.assertEqual(len(argv), 9)
         # Tab text goes on stdin, never into argv where `ps` would show it.
         self.assertIn("tokio.rs", self.stdin_log()[0])
         self.assertNotIn("tokio", " ".join(argv))
@@ -210,8 +210,38 @@ class ErrorCodes(HostCase):
         r = self.call("name", {"items": items})
         self.assertTrue(r["ok"], r)
         body = self.stdin_log()[0]
-        self.assertLessEqual(len(body), host.CHAR_BUDGET)
+        self.assertLessEqual(len(body) // 4, host.TOKEN_BUDGET)
         self.assertIn("word", body)
+
+    def test_chinese_pages_are_measured_in_tokens(self):
+        # 30 Chinese tabs: few characters, but about twice the tokens per character of English. fm's own
+        # count says it's too long, so the page text is shortened.
+        items = [{"title": f"页面 {n}", "url": f"https://example.cn/{n}", "description": "中文内容" * 100} for n in range(30)]
+        self.control({"count_tokens": {"stdout": "9000\n", "exit": 0},
+                      "respond": {"stdout": json.dumps({"title": "阅读清单", "emoji": "📚"}), "exit": 0}})
+        r = self.call("name", {"items": items})
+        self.assertTrue(r["ok"], r)
+        self.assertIn("count-tokens", [a[0] for a in self.argv_log()])
+        body = self.stdin_log()[0]
+        self.assertIn("中文内容", body)
+        self.assertNotIn("中文内容" * 60, body)  # 500 characters didn't fit; 200 did
+
+    def test_over_budget_by_fms_count_reports_allowed_items(self):
+        items = [{"title": "中文标题" * 30, "url": f"https://example.cn/{n}"} for n in range(100)]
+        self.control({"count_tokens": {"stdout": "14000\n", "exit": 0}})
+        r = self.call("name", {"items": items})
+        self.assertEqual(r["error"]["code"], "OVER_BUDGET")
+        self.assertEqual(r["error"]["allowedItems"], 50)
+
+    def test_short_prompts_skip_the_exact_count(self):
+        self.respond(json.dumps({"title": "Rust async", "emoji": "🦀"}))
+        self.call("name", {"items": ITEMS3})
+        self.assertNotIn("count-tokens", [a[0] for a in self.argv_log()])
+
+    def test_estimate_covers_the_measured_counts(self):
+        # Measured with fm count-tokens on macOS 27 (tab lists): the estimate must never be lower.
+        for text, measured in (("a" * 3072, 810), ("я" * 1274, 400), ("中" * 476, 255), ("の" * 384, 195)):
+            self.assertGreaterEqual(host.estimate_tokens(host.prompts.Prompt("", text)), measured, text[0])
 
     def test_over_budget_precheck_reports_allowed_items(self):
         big = [{"title": "t" * 120, "url": "https://example.com/" + "p" * 280, "description": "d" * 300} for _ in range(120)]
@@ -300,6 +330,18 @@ class Organize(HostCase):
         name_calls = self.stdin_log()[1:]
         self.assertIn("Tokio", name_calls[0])
         self.assertIn('"Lisbon trip"', name_calls[0])  # existing titles are off limits
+
+    def test_two_topics_joining_one_group_make_one_join(self):
+        # The group's two example tabs (8 and 9) got different topics; both topics still join group 0 once.
+        self.topics([(3, "Travel"), (4, "Hotels"), (8, "Travel"), (9, "Hotels"), (0, "Programming")])
+        r = self.call("organize", {"items": self.ITEMS, "existingGroups": self.EXISTING})
+        joins = [g for g in r["result"]["groups"] if "existing" in g]
+        self.assertEqual(joins, [{"title": "", "emoji": "", "color": "", "existing": 0, "members": [3, 4]}])
+
+    def test_fm_answers_greedily(self):
+        self.topics([(0, "Programming")])
+        self.call("organize", {"items": self.ITEMS})
+        self.assertIn("--greedy", [a for a in self.argv_log() if a[0] == "respond"][0])
 
     def test_a_topic_of_one_tab_is_a_leftover(self):
         self.topics([(0, "Programming"), (1, "Programming"), (2, "Rust"), (3, "Travel"), (4, "Travel"), (5, "Web"), (6, "Food"), (7, "Cooking")])

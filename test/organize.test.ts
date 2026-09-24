@@ -21,6 +21,13 @@ describe("batching", () => {
     expect(b.flat()).toHaveLength(30);
   });
 
+  it("counts Chinese and Japanese characters double, as fm's tokenizer does", () => {
+    const en = makeBatches(Array.from({ length: 30 }, (_, i) => t(i, { description: "x".repeat(300) })), 36, 5000);
+    const zh = makeBatches(Array.from({ length: 30 }, (_, i) => t(i, { description: "中".repeat(300) })), 36, 5000);
+    expect(zh.length).toBeGreaterThan(en.length);
+    expect(zh.flat()).toHaveLength(30);
+  });
+
   it("maxGroups = min(8, ceil(items / 3))", () => {
     expect(maxGroupsFor(18)).toBe(6);
     expect(maxGroupsFor(4)).toBe(2);

@@ -73,6 +73,14 @@ class ValidateName(unittest.TestCase):
             with self.assertRaises(validate.ValidationError, msg=bad):
                 self.v(bad)
 
+    def test_chinese_and_japanese_titles_need_no_spaces(self):
+        self.assertEqual(self.v("日本旅行")["title"], "日本旅行")
+        self.assertEqual(self.v("京都の旅行計画")["title"], "京都の旅行計画")
+        self.assertEqual(self.v("React 教程")["title"], "React 教程")
+        for bad in ("日", "这是一个非常非常非常非常非常长的标题名字"):
+            with self.assertRaises(validate.ValidationError, msg=bad):
+                self.v(bad)
+
     def test_emoji_default(self):
         self.assertEqual(self.v("Rust async", "not-an-emoji")["emoji"], "🧭")
         self.assertEqual(self.v("Rust async", "✈")["emoji"], "✈️")

@@ -37,10 +37,10 @@ def render_address(url):
     return _clean(host + path + query, 160)
 
 
-def render_items(items):
+def render_items(items, desc_cap=500):
     lines = []
     for it in items:
-        desc = _clean(it.get("description"), 300) or "-"
+        desc = _clean(it.get("description"), desc_cap) or "-"
         lines.append(f"{it['i']} | {_clean(it.get('title'), 120)} | {render_address(it.get('url', ''))} | {desc}")
     return "\n".join(lines)
 
@@ -49,7 +49,7 @@ def _quoted(titles):
     return ", ".join(f'"{_clean(t, 60)}"' for t in titles)
 
 
-def build_name_prompt(payload, strict=False):
+def build_name_prompt(payload, strict=False, desc_cap=500):
     rules = [
         "- Title: 2 to 4 words, sentence case, no punctuation at the end, no quotes.",
         "- Describe the topic or task, not the website, unless every tab is the same site.",
@@ -75,7 +75,7 @@ def build_name_prompt(payload, strict=False):
     differ = payload.get("mustDifferFrom") or []
     if differ:
         context.append(f"Not allowed: {_quoted(differ)}")
-    text = ("\n".join(context) + "\n\n" if context else "") + "Tabs (index | title | address | description):\n" + render_items(payload["items"]) + "\n"
+    text = ("\n".join(context) + "\n\n" if context else "") + "Tabs (index | title | address | what the page says):\n" + render_items(payload["items"], desc_cap) + "\n"
     return Prompt(instructions, text)
 
 
@@ -93,11 +93,11 @@ TOPICS_INSTRUCTIONS = (
 )
 
 
-def topic_items(payload):
+def topic_items(payload, desc_cap=500):
     """The tabs to sort, then up to two example tabs of each existing group, numbered after them.
     Returns (lines, owner) where owner maps an example's index to its group number."""
     items = payload["items"]
-    lines = [render_items(items)] if items else []
+    lines = [render_items(items, desc_cap)] if items else []
     owner = {}
     n = len(items)
     for g in payload.get("existingGroups") or []:
@@ -108,7 +108,7 @@ def topic_items(payload):
     return "\n".join(lines), owner
 
 
-def build_topics_prompt(payload, strict=False):
+def build_topics_prompt(payload, strict=False, desc_cap=500):
     instructions = TOPICS_INSTRUCTIONS + (f"\n- {STRICT_LINE}" if strict else "")
-    body, _ = topic_items(payload)
-    return Prompt(instructions, "Tabs (index | title | address | description):\n" + body + "\n")
+    body, _ = topic_items(payload, desc_cap)
+    return Prompt(instructions, "Tabs (index | title | address | what the page says):\n" + body + "\n")

@@ -131,7 +131,7 @@ def validate_request(req):
             if not isinstance(it, dict):
                 raise Fail("BAD_REQUEST", f"item {n} is not an object")
             clean.append({"i": n, "title": _trim(it.get("title"), 120), "url": _trim(it.get("url"), 300),
-                          "description": _trim(it.get("description"), 300)})
+                          "description": _trim(it.get("description"), 500)})
         payload["items"] = clean
         for key in ("siblingTitles", "mustDifferFrom"):
             payload[key] = [_trim(t, 60) for t in payload.get(key) or [] if isinstance(t, str)][:20]
@@ -184,6 +184,20 @@ def fm_env():
 def schema_path(name):
     path = os.path.join(SCHEMAS, name)
     return path if os.path.isfile(path) and os.path.getsize(path) > 0 else None
+
+
+# How much of each page's text to send, most first: when a batch doesn't fit the budget, the pages' text
+# is shortened, then dropped, before the host gives up and asks for a smaller batch.
+DESC_CAPS = (500, 200, 0)
+
+
+def fit(build, n_items):
+    for cap in DESC_CAPS:
+        prompt = build(cap)
+        if prompts.size(prompt) <= CHAR_BUDGET:
+            return prompt
+    check_budget(prompt, n_items)  # raises OVER_BUDGET with how many items would fit
+    return prompt
 
 
 def check_budget(prompt, n_items):
@@ -324,8 +338,7 @@ def op_name(payload, opts):
     schema = schema_path("name.json")
     if not schema:
         raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'name.json')}")
-    prompt = prompts.build_name_prompt(payload, strict=opts.get("strict", False))
-    check_budget(prompt, len(payload["items"]))
+    prompt = fit(lambda cap: prompts.build_name_prompt(payload, strict=opts.get("strict", False), desc_cap=cap), len(payload["items"]))
     try:
         out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
     except Fail as f:
@@ -341,8 +354,7 @@ def op_organize(payload, opts):
     schema = schema_path("topics.json")
     if not schema:
         raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'topics.json')}")
-    prompt = prompts.build_topics_prompt(payload, strict=opts.get("strict", False))
-    check_budget(prompt, len(payload["items"]))
+    prompt = fit(lambda cap: prompts.build_topics_prompt(payload, strict=opts.get("strict", False), desc_cap=cap), len(payload["items"]))
     try:
         out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
     except Fail as f:

@@ -4,7 +4,7 @@ Diagonal groups and names your browser tabs. This page says what it reads, where
 
 ## What Diagonal reads
 
-For each normal (not incognito) tab: its title, its address and the page's `<meta name="description">`. In settings you can leave out descriptions, or send only the site name instead of the full address.
+For each normal (not incognito) tab: its title, its address, and up to 500 characters of what the page says (its description tag, its main heading and the opening lines of its main text, never anything typed into forms). In settings you can leave out the page text, or send only the site name instead of the full address.
 
 ## Where it goes
 

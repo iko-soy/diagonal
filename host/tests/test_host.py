@@ -203,12 +203,22 @@ class ErrorCodes(HostCase):
     def test_over_budget_from_fm(self):
         self.expect("OVER_BUDGET", stderr="The prompt exceeds the context window", exit=1)
 
+    def test_page_text_is_shortened_before_giving_up(self):
+        # 40 tabs with long page text don't fit at 500 chars each, but do once the text is shortened.
+        items = [{"title": f"Page {n}", "url": f"https://example.com/{n}", "description": "word " * 100} for n in range(40)]
+        self.respond(json.dumps({"title": "Reading list", "emoji": "📚"}))
+        r = self.call("name", {"items": items})
+        self.assertTrue(r["ok"], r)
+        body = self.stdin_log()[0]
+        self.assertLessEqual(len(body), host.CHAR_BUDGET)
+        self.assertIn("word", body)
+
     def test_over_budget_precheck_reports_allowed_items(self):
-        big = [{"title": "t" * 120, "url": "https://example.com/" + "p" * 280, "description": "d" * 300} for _ in range(60)]
+        big = [{"title": "t" * 120, "url": "https://example.com/" + "p" * 280, "description": "d" * 300} for _ in range(120)]
         r = self.call("name", {"items": big})
         self.assertEqual(r["error"]["code"], "OVER_BUDGET")
         self.assertGreaterEqual(r["error"]["allowedItems"], 1)
-        self.assertLess(r["error"]["allowedItems"], 60)
+        self.assertLess(r["error"]["allowedItems"], 120)
         self.assertEqual([a for a in self.argv_log() if a[0] == "respond"], [])
 
     def test_guardrail(self):

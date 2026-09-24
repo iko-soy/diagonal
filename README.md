@@ -14,7 +14,7 @@ You open and close tabs as usual. Diagonal does the rest on its own; there are n
 
 Your own choices win: a tab you take out of a group stays out until it goes to another page, groups you make yourself are left alone, and a title you type is kept. The popup still has **Organize now**, **Tidy now** and their undo, but none of them is needed.
 
-The model sees a tab's title, address and `<meta name="description">`, and nothing else.
+The model sees a tab's title, its address, and up to 500 characters of what the page says: its description tag, its main heading and the opening lines of its main text (never form fields). Settings → Privacy can leave the page text out or send only the site name. When a batch of tabs doesn't fit the model's context, the page text is shortened first, then dropped.
 
 ## Requirements
 

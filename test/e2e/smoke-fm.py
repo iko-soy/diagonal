@@ -19,7 +19,7 @@ def topic_of(text):
 
 
 def items(prompt):
-    body = prompt.split("Tabs (index | title | address | description):", 1)[-1]
+    body = prompt.split("Tabs (index | title | address | what the page says):", 1)[-1]
     out = []
     for line in body.strip().splitlines():
         m = re.match(r"^(\d+) \| (.*)$", line)

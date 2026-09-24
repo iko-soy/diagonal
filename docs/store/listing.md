@@ -18,7 +18,7 @@ Everything the Chrome Web Store developer dashboard asks for, ready to paste. Th
   >
   > Requirements: a Mac with Apple silicon running macOS 27 with Apple Intelligence on, plus Diagonal's small helper program, installed with: brew install iko-soy/tap/diagonal
   >
-  > Private by design: the model runs on your Mac and sees only each tab's title, address and description. Diagonal has no server and no analytics.
+  > Private by design: the model runs on your Mac and sees only each tab's title, address and a short summary of the page. Diagonal has no server and no analytics.
 
 - **Icon:** `icons/128.png`
 - **Screenshots (1280×800):** `docs/store/screenshot-popup.png`, `docs/store/screenshot-settings.png`
@@ -35,10 +35,10 @@ Everything the Chrome Web Store developer dashboard asks for, ready to paste. Th
   - `storage`: keeps settings, which groups it manages, and archived tabs, on this computer.
   - `alarms`: waits for tabs to settle before grouping, and runs the idle-tab tidy on a schedule.
   - `nativeMessaging`: talks to Diagonal's helper on the Mac, which runs Apple's on-device model.
-  - `scripting`: reads the meta description of tabs that were already open when Diagonal was installed.
-  - Host permissions `http://*/*`, `https://*/*`: the content script reads each page's meta description, which helps the model name groups.
+  - `scripting`: reads the short page summary of tabs that were already open when Diagonal was installed.
+  - Host permissions `http://*/*`, `https://*/*`: the content script reads a short summary of each page (description tag, main heading, opening lines), which helps the model group and name tabs.
 - **Remote code:** No, it does not use remote code.
-- **Data usage:** collects "Web history" (tab titles and addresses) and "Website content" (page descriptions). Check the three certifications: not sold to third parties, not used for unrelated purposes, not used for creditworthiness or lending.
+- **Data usage:** collects "Web history" (tab titles and addresses) and "Website content" (a short summary of each page). Check the three certifications: not sold to third parties, not used for unrelated purposes, not used for creditworthiness or lending.
 - **Privacy policy URL:** https://github.com/iko-soy/diagonal/blob/master/PRIVACY.md
 
 ## Distribution

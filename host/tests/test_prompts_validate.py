@@ -47,7 +47,7 @@ class Rendering(unittest.TestCase):
         idx, title, addr, desc = line.split(" | ")
         self.assertLessEqual(len(title), 120)
         self.assertLessEqual(len(addr), 160)
-        self.assertLessEqual(len(desc), 300)
+        self.assertLessEqual(len(desc), 500)
         self.assertTrue(addr.startswith("example.com/"))
 
     def test_address(self):

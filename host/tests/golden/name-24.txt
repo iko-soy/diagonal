@@ -11,7 +11,7 @@ Rules:
 - Never reuse a name listed under other groups or not allowed.
 
 [stdin]
-Tabs (index | title | address | description):
+Tabs (index | title | address | what the page says):
 0 | tokio 0 - docs.rs | docs.rs/tokio/latest/tokio/?search=x0&utm_source=y | Documentation for the tokio crate, part 0.
 1 | serde 1 - docs.rs | docs.rs/serde/latest/serde/?search=x1&utm_source=y | Documentation for the serde crate, part 1.
 2 | axum 2 - docs.rs | docs.rs/axum/latest/axum/?search=x2&utm_source=y | Documentation for the axum crate, part 2.

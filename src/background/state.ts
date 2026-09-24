@@ -10,7 +10,7 @@ export interface TabRecord {
   index: number;
   url: string;
   title: string;
-  description?: string; // trimmed to 300 chars
+  description?: string; // what the page says (content/meta.ts), trimmed to 500 chars
   openerTabId?: number;
   pinned: boolean;
   incognito?: boolean;

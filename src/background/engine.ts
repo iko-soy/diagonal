@@ -192,7 +192,7 @@ const handlers: Handlers = {
   meta(s, { tabId, description }, ctx, out) {
     const rec = s.tabs[tabId];
     if (!rec) return;
-    const d = trimText(description, 300) || undefined;
+    const d = trimText(description, 500) || undefined;
     if (d === rec.description) return;
     rec.description = d;
     if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);

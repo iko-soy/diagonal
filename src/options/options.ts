@@ -40,7 +40,7 @@ const SECTIONS: Section[] = [
     title: "Privacy",
     intro: "What Apple's on-device model sees when it names a group. It runs on this Mac; nothing leaves it.",
     fields: [
-      { key: "sendDescription", label: "Include page descriptions", help: "Off: titles and addresses only.", kind: "bool" },
+      { key: "sendDescription", label: "Include what pages say", help: "Each page's description, main heading and opening lines. Off: titles and addresses only.", kind: "bool" },
       { key: "sendFullUrl", label: "Include full addresses", help: "Off: just the site name.", kind: "bool" },
     ],
   },

@@ -72,7 +72,7 @@ export function sampleMembers(members: Member[], cap = NAME_ITEM_CAP): Member[] 
 export function toItems(members: Member[], settings: Pick<Settings, "sendDescription" | "sendFullUrl">, withDescriptions = true): NameItem[] {
   return members.map((m, i) => {
     const item: NameItem = { i, title: trimText(m.title, 120), url: promptUrl(m.url, settings.sendFullUrl) };
-    const d = withDescriptions && settings.sendDescription ? trimText(m.description, 300) : "";
+    const d = withDescriptions && settings.sendDescription ? trimText(m.description, 500) : "";
     if (d) item.description = d;
     return item;
   });

@@ -9,7 +9,7 @@ Rules:
 - Write topics in English.
 
 [stdin]
-Tabs (index | title | address | description):
+Tabs (index | title | address | what the page says):
 0 | Tokio - An asynchronous Rust runtime | tokio.rs | Tokio is an asynchronous runtime for Rust.
 1 | async-std | async.rs | Async version of the Rust standard library.
 2 | Asynchronous Programming in Rust | rust-lang.github.io/async-book/ | -

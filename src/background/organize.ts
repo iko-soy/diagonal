@@ -55,7 +55,7 @@ export const organizable = (t: { groupId?: number; pinned?: boolean; url?: strin
 
 /** Rough rendered size of one item line, the unit the character budget is spent in. */
 export const itemChars = (m: Pick<Member, "title" | "url" | "description">): number =>
-  Math.min(120, m.title.length) + promptAddress(m.url).length + Math.min(300, m.description?.length ?? 1) + 12;
+  Math.min(120, m.title.length) + promptAddress(m.url).length + Math.min(500, m.description?.length ?? 1) + 12;
 
 /** Split tabs (in strip order) into batches of ≤ cap items that also fit the character budget. */
 export function makeBatches<T extends Pick<Member, "title" | "url" | "description">>(

@@ -167,7 +167,10 @@ describe("dirty triggers", () => {
 
   it("title change and path change mark the group dirty", () => {
     expect(step(base(), { type: "tabUpdated", tab: tab(1, { groupId: 10, title: "New" }) }, ctx()).actions).toEqual([{ type: "dirty", groupId: 10 }]);
-    expect(step(base(), { type: "tabUpdated", tab: tab(1, { groupId: 10, url: "https://example.com/other" }) }, ctx()).actions).toEqual([{ type: "dirty", groupId: 10 }]);
+    expect(step(base(), { type: "tabUpdated", tab: tab(1, { groupId: 10, url: "https://example.com/other" }) }, ctx()).actions).toEqual([
+      { type: "checkFit" },
+      { type: "dirty", groupId: 10 },
+    ]);
   });
 
   it("reload, fragment and query changes do not", () => {
@@ -250,5 +253,60 @@ describe("auto-organize triggers", () => {
     const { state, actions } = step(s, { type: "tabActivated", tabId: 1 }, ctx(5_000_000));
     expect(actions).toEqual([]);
     expect(state.tabs[1].lastActivatedAt).toBe(5_000_000);
+  });
+});
+
+describe("fit check", () => {
+  const group = () => stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 10 }), tab(3, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+  const moveOn = (s = group(), over = {}) =>
+    step(s, { type: "tabUpdated", tab: tab(1, { groupId: 10, url: "https://news.example/story", ...over }) }, ctx());
+
+  it("a tab in a Diagonal group that goes to a new page is checked once it has loaded", () => {
+    const loading = moveOn(group(), { status: "loading" });
+    expect(loading.state.tabs[1].fitPending).toBe(true);
+    expect(loading.actions).not.toContainEqual({ type: "checkFit" });
+    const loaded = step(loading.state, { type: "tabUpdated", tab: tab(1, { groupId: 10, url: "https://news.example/story" }) }, ctx());
+    expect(loaded.actions).toContainEqual({ type: "checkFit" });
+  });
+
+  it("switching to another tab checks the pending one", () => {
+    const { state } = moveOn(group(), { status: "loading" });
+    expect(step(state, { type: "tabActivated", tabId: 2 }, ctx()).actions).toContainEqual({ type: "checkFit" });
+    expect(step(state, { type: "tabActivated", tabId: 1 }, ctx()).actions).not.toContainEqual({ type: "checkFit" });
+  });
+
+  it("leaves groups you named and groups you made alone", () => {
+    const named = group();
+    named.groups[10].userNamed = true;
+    expect(moveOn(named).state.tabs[1].fitPending).toBeUndefined();
+    const yours = stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 10 })], [{ id: 10, origin: "user" }]);
+    expect(moveOn(yours).state.tabs[1].fitPending).toBeUndefined();
+    expect(moveOn(group(), {}).state.tabs[1].fitPending).toBe(true);
+    const off = step(group(), { type: "tabUpdated", tab: tab(1, { groupId: 10, url: "https://news.example/story" }) }, ctx(0, { autoOrganize: false }));
+    expect(off.state.tabs[1].fitPending).toBeUndefined();
+  });
+
+  it("a tab you dragged into a group stays there", () => {
+    const s = stateWith([tab(1), tab(2, { groupId: 10 }), tab(3, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+    const dragged = step(s, { type: "tabUpdated", tab: tab(1, { groupId: 10 }) }, ctx());
+    expect(dragged.state.tabs[1].handPlaced).toBe(true);
+    expect(moveOn(dragged.state).state.tabs[1].fitPending).toBeUndefined();
+  });
+
+  it("a tab Diagonal put in the group is still checked", () => {
+    const s = stateWith([tab(1), tab(2, { groupId: 10 }), tab(3, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+    s.ownAdds[1] = 1_000_000;
+    const added = step(s, { type: "tabUpdated", tab: tab(1, { groupId: 10 }) }, ctx());
+    expect(added.state.tabs[1].handPlaced).toBeUndefined();
+    expect(added.state.ownAdds[1]).toBeUndefined();
+    expect(moveOn(added.state).state.tabs[1].fitPending).toBe(true);
+  });
+
+  it("leaving the group clears both marks", () => {
+    const pending = moveOn(group(), { status: "loading" }).state;
+    pending.tabs[1].handPlaced = true;
+    const out = step(pending, { type: "tabUpdated", tab: tab(1, { url: "https://news.example/story" }) }, ctx());
+    expect(out.state.tabs[1].fitPending).toBeUndefined();
+    expect(out.state.tabs[1].handPlaced).toBeUndefined();
   });
 });

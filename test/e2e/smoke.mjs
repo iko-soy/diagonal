@@ -47,6 +47,8 @@ const pages = {
   "/pasta": ["Pasta recipe", "A weeknight pasta recipe.", ""],
   "/cook": ["How to cook rice", "Cook rice perfectly.", ""],
   "/misc": ["Something else", "Unrelated page.", ""],
+  "/flight": ["Flights to Lisbon", "Cheap flights to Lisbon.", ""],
+  "/risotto": ["Mushroom risotto recipe", "A creamy risotto recipe.", ""],
 };
 const server = createServer((req, res) => {
   const p = pages[req.url.split("?")[0]];
@@ -185,6 +187,31 @@ try {
   await sleep(4500);
   const pasta = await tabIn(win2, "/pasta");
   check("an auto-made group closed down to one tab dissolves, and the tab is not regrouped alone", !!gone && pasta.groupId === -1, JSON.stringify({ gone, pasta: pasta.groupId }));
+
+  // 6b. A grouped tab that moves on to an unrelated page leaves its group and joins a better one.
+  const win3 = await sw.evaluate(async (b) => {
+    const w = await chrome.windows.create({ url: `${b}/flight` });
+    for (const p of ["travel", "hotel", "pasta", "cook"]) await chrome.tabs.create({ windowId: w.id, url: `${b}/${p}` });
+    return w.id;
+  }, base);
+  const sorted3 = await until(async () => {
+    const t = await titlesIn(win3);
+    return t.split("|").length === 2 ? t : undefined;
+  }, 25000);
+  const flight = await tabIn(win3, "/flight");
+  const lisbonGroup = flight.groupId;
+  const pastaGroup3 = (await tabIn(win3, "/pasta")).groupId;
+  await sw.evaluate(async ([id, url]) => chrome.tabs.update(id, { url }), [flight.id, `${base}/risotto`]);
+  const moved = await until(async () => {
+    const t = await sw.evaluate(async (id) => chrome.tabs.get(id), flight.id);
+    return t.groupId === pastaGroup3 ? t : undefined;
+  }, 25000);
+  const lisbonLeft = await sw.evaluate(async (g) => (await chrome.tabs.query({ groupId: g })).length, lisbonGroup);
+  check(
+    "a grouped tab that moves to an unrelated page leaves for the matching group",
+    !!sorted3 && !!moved && lisbonLeft === 2,
+    JSON.stringify({ sorted3, now: (await sw.evaluate(async (id) => chrome.tabs.get(id), flight.id)).groupId, lisbonGroup, pastaGroup3, lisbonLeft }),
+  );
 
   // 7. Popup renders the healthy state.
   await popup.setViewportSize({ width: 360, height: 560 });

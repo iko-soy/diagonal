@@ -50,7 +50,8 @@ export type Action =
   | { type: "scheduleDissolve"; groupId: number; delayMs: number }
   | { type: "dirty"; groupId: number }
   | { type: "loose"; windowId: number }
-  | { type: "unpark"; tabId: number; groupId: number };
+  | { type: "unpark"; tabId: number; groupId: number }
+  | { type: "checkFit" };
 
 export interface Ctx {
   now: number;
@@ -105,6 +106,18 @@ const handlers: Handlers = {
     if (pathChanged) rec.keepLoose = undefined; // a new page is fair game again
     if (before.groupId !== rec.groupId) {
       left(s, before.groupId, ctx, out);
+      rec.fitPending = undefined;
+      if (rec.groupId !== -1) {
+        // Into a group: ours if the worker put it there, otherwise the user did and it stays.
+        if (s.ownAdds[rec.id] !== undefined) {
+          delete s.ownAdds[rec.id];
+          rec.handPlaced = undefined;
+        } else {
+          rec.handPlaced = true;
+        }
+      } else {
+        rec.handPlaced = undefined;
+      }
       if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);
       else if (before.groupId !== -1) {
         // Out of a group: ours if the worker dissolved it, otherwise the user's choice to keep it loose.
@@ -122,6 +135,8 @@ const handlers: Handlers = {
       if (titleChanged || pathChanged || loaded || before.pinned !== rec.pinned) loose(rec, ctx, out);
       return;
     }
+    if (pathChanged && fitCheckable(s, rec, ctx.settings)) rec.fitPending = true;
+    if (rec.fitPending && rec.status === "complete") out.push({ type: "checkFit" });
     if (titleChanged || pathChanged) dirty(s, rec.groupId, ctx, out);
     else if (before.status !== "complete" && rec.status === "complete" && s.groups[rec.groupId]?.dirty) {
       // A member finished loading: the naming loop may have been waiting for it.
@@ -140,6 +155,8 @@ const handlers: Handlers = {
     const rec = s.tabs[tabId];
     if (!rec) return;
     rec.lastActivatedAt = ctx.now;
+    // A tab waiting for its fit check is checked once the user has moved on from it.
+    if (Object.values(s.tabs).some((t) => t.fitPending && t.id !== tabId)) out.push({ type: "checkFit" });
     // Using a parked tab means it is not stale: it leaves Parked and auto-organize places it.
     if (rec.groupId !== -1 && s.groups[rec.groupId]?.origin === "tidy") {
       rec.parkedFrom = undefined;
@@ -236,6 +253,21 @@ function openerRule(s: State, child: TabSnapshot, opener: TabSnapshot | undefine
 export const shouldDissolve = (g: GroupRecord, settings: Settings): boolean =>
   g.managed && (g.origin === "opener" || g.origin === "organize") && !g.userNamed && settings.dissolveSingletons;
 
+/** Only groups Diagonal made and still names itself, and only tabs it put there, are checked for fit. */
+export function fitCheckable(s: State, rec: TabRecord, settings: Settings): boolean {
+  const g = s.groups[rec.groupId];
+  return (
+    settings.autoOrganize &&
+    !!g &&
+    g.managed &&
+    (g.origin === "opener" || g.origin === "organize") &&
+    !g.userNamed &&
+    !rec.handPlaced &&
+    !rec.pinned &&
+    !isInternalUrl(rec.url)
+  );
+}
+
 /** An ungrouped tab changed: auto-organize should look at its window once things settle. */
 function loose(rec: TabRecord, ctx: Ctx, out: Action[]): void {
   if (!ctx.settings.autoOrganize || rec.groupId !== -1 || rec.pinned || rec.keepLoose || isInternalUrl(rec.url)) return;
@@ -305,6 +337,8 @@ function upsertTab(s: State, tab: TabSnapshot, now: number): TabRecord {
   if (before?.description && pathKey(before.url) === pathKey(url)) rec.description = before.description;
   if (before?.keepLoose) rec.keepLoose = before.keepLoose;
   if (before?.organizedKey) rec.organizedKey = before.organizedKey;
+  if (before?.handPlaced) rec.handPlaced = true;
+  if (before?.fitPending) rec.fitPending = true;
   s.tabs[tab.id] = rec;
   return rec;
 }
@@ -327,4 +361,5 @@ function prune(s: State, now: number): void {
   s.pendingCreates = s.pendingCreates.filter((p) => now - p.at <= OWN_CREATE_WINDOW_MS);
   for (const [id, w] of Object.entries(s.ownWrites)) if (now - w.at > OWN_WRITE_WINDOW_MS) delete s.ownWrites[+id];
   for (const [id, at] of Object.entries(s.ownUngroups)) if (now - at > OWN_WRITE_WINDOW_MS) delete s.ownUngroups[+id];
+  for (const [id, at] of Object.entries(s.ownAdds)) if (now - at > OWN_WRITE_WINDOW_MS) delete s.ownAdds[+id];
 }

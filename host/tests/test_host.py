@@ -343,6 +343,12 @@ class Organize(HostCase):
         self.call("organize", {"items": self.ITEMS})
         self.assertIn("--greedy", [a for a in self.argv_log() if a[0] == "respond"][0])
 
+    def test_topics_only_when_asked_not_to_name(self):
+        self.topics([(0, "Programming"), (1, "Programming"), (2, "Travel")])
+        r = self.call("organize", {"items": self.ITEMS, "nameGroups": False})
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(len([a for a in self.argv_log() if a[0] == "respond"]), 1)
+
     def test_a_topic_of_one_tab_is_a_leftover(self):
         self.topics([(0, "Programming"), (1, "Programming"), (2, "Rust"), (3, "Travel"), (4, "Travel"), (5, "Web"), (6, "Food"), (7, "Cooking")])
         r = self.call("organize", {"items": self.ITEMS, "maxGroups": 4})

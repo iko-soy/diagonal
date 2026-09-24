@@ -68,6 +68,7 @@ export async function createManagedGroup(
 ): Promise<number | undefined> {
   const s = rt.state();
   s.pendingCreates.push({ windowId, origin, at: rt.now() });
+  for (const id of tabIds) s.ownAdds[id] = rt.now();
   let groupId: number;
   try {
     groupId = await withEditRetry(() => chrome.tabs.group({ tabIds: tabIds as [number, ...number[]], createProperties: { windowId } }));
@@ -86,6 +87,8 @@ export async function createManagedGroup(
 }
 
 export async function addToGroup(rt: Runtime, tabIds: number[], groupId: number): Promise<boolean> {
+  const s = rt.state();
+  for (const id of tabIds) s.ownAdds[id] = rt.now();
   try {
     await withEditRetry(() => chrome.tabs.group({ tabIds: tabIds as [number, ...number[]], groupId }));
     return true;

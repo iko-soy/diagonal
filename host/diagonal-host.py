@@ -391,7 +391,9 @@ def op_organize(payload, opts):
         result = validate.organize_from_topics(out, payload, owner)
     except validate.ValidationError as e:
         raise Fail("BAD_MODEL_OUTPUT", str(e), retryable=True, raw=json.dumps(out, ensure_ascii=False)[:2000])
-    chars = prompts.size(prompt) + name_new_groups(result, payload, opts, time.time() + opts["timeout_s"])
+    chars = prompts.size(prompt)
+    if payload.get("nameGroups") is not False:  # the extension's fit check only needs the topics
+        chars += name_new_groups(result, payload, opts, time.time() + opts["timeout_s"])
     return result, chars, "topics"
 
 

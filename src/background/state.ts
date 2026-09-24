@@ -20,6 +20,8 @@ export interface TabRecord {
   parkedFrom?: string; // title of the group the tab was in before the tidy sweep parked it
   keepLoose?: string; // the user took this tab out of a group on this page: auto-organize leaves it be
   organizedKey?: string; // page + title when auto-organize last considered this tab
+  handPlaced?: boolean; // the user put this tab into its group: Diagonal won't take it out
+  fitPending?: boolean; // moved to a new page inside a Diagonal group: check it still fits (fit.ts)
 }
 
 export interface GroupRecord {
@@ -120,6 +122,8 @@ export interface State {
   pendingCreates: { windowId: number; origin: GroupOrigin; at: number }[];
   /** Tabs the worker itself is ungrouping (dissolve): leaving the group is not a user choice. */
   ownUngroups: Record<number, number>;
+  /** Tabs the worker itself is adding to a group: joining it is not the user's choice. */
+  ownAdds: Record<number, number>;
   lastSweep?: { at: number; moves: SweepMove[] };
   lastOrganize?: { at: number; previous: Record<number, number> };
   tidyCandidates?: number;
@@ -134,6 +138,7 @@ export const emptyState = (): State => ({
   ownWrites: {},
   pendingCreates: [],
   ownUngroups: {},
+  ownAdds: {},
 });
 
 /** Accept whatever was stored and bring it to the current shape. */
@@ -154,6 +159,7 @@ export function migrate(raw: unknown): State {
     ownWrites: r.ownWrites ?? {},
     pendingCreates: r.pendingCreates ?? [],
     ownUngroups: r.ownUngroups ?? {},
+    ownAdds: r.ownAdds ?? {},
   };
 }
 

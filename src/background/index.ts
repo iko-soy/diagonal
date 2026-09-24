@@ -3,6 +3,7 @@ import { applyEvent, type Action, type EngineEvent, type GroupSnapshot, type Tab
 import { callHost, chromeSender, explain, HOST_MANIFEST_PATH, SETUP_ERRORS, type HostOpts, type HostReply, type Op } from "./host";
 import { GLOBAL_PAUSE_AFTER, GLOBAL_PAUSE_MS, Naming, RATE_LIMIT_PAUSES_MS, type Member, type NamePayload, type NameResult } from "./naming";
 import { AutoOrganizer, organizeWindow, undoOrganize, UNDO_WINDOW_MS as ORGANIZE_UNDO_MS } from "./organize";
+import { FitChecker } from "./fit";
 import { addToGroup, createManagedGroup, ungroup, updateGroup, type Runtime } from "./runtime";
 import { withDefaults, type Settings } from "./settings";
 import { markDirty, migrate, newGroupRecord, type GroupRecord, type HostError, type PingResult, type State, type TabRecord } from "./state";
@@ -239,6 +240,7 @@ async function scheduleAutoFallback(when: number): Promise<void> {
 }
 
 const autoOrganizer = new AutoOrganizer(rt, { scheduleFallback: (when) => void scheduleAutoFallback(when) });
+const fitChecker = new FitChecker(rt);
 
 // ----- engine glue -----------------------------------------------------------------------------
 
@@ -327,6 +329,9 @@ async function run(a: Action): Promise<void> {
     case "dirty":
       naming.touch(a.groupId);
       break;
+    case "checkFit":
+      fitChecker.touch();
+      break;
   }
 }
 
@@ -365,6 +370,7 @@ async function reconcile(): Promise<void> {
       parkedFrom: prev?.parkedFrom,
       keepLoose: prev?.keepLoose,
       organizedKey: prev?.organizedKey,
+      handPlaced: prev?.handPlaced,
       createdAt: prev?.createdAt ?? now,
       lastActivatedAt: Math.max(prev?.lastActivatedAt ?? 0, t.lastAccessed ?? 0) || now,
     };
@@ -393,6 +399,7 @@ async function reconcile(): Promise<void> {
   state.pendingCreates = [];
   state.ownWrites = {};
   state.ownUngroups = {};
+  state.ownAdds = {};
   if (state.lastSweep && now - state.lastSweep.at > SWEEP_UNDO_MS) state.lastSweep = undefined;
   if (state.lastOrganize && now - state.lastOrganize.at > ORGANIZE_UNDO_MS) state.lastOrganize = undefined;
   commit();

@@ -77,7 +77,7 @@ class Ping(HostCase):
         self.assertEqual(r["result"]["fmPath"], self.fm)
         self.assertTrue(r["result"]["fmAvailable"])
         self.assertTrue(r["result"]["schemasOk"])
-        self.assertEqual(r["result"]["organizeMode"], "nested")
+        self.assertEqual(r["result"]["organizeMode"], "topics")
 
     def test_ping_model_unavailable(self):
         self.control({"available": {"stderr": "Apple Intelligence is not enabled", "exit": 1}})
@@ -107,7 +107,7 @@ class Ping(HostCase):
         r = self.call("ping")
         self.assertTrue(r["ok"], r)
         self.assertTrue(r["result"]["schemasOk"])
-        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "organize.json"])
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "topics.json"])
 
     def test_ping_without_fm(self):
         self.env["DIAGONAL_FM"] = os.path.join(self.tmp, "missing-fm")
@@ -124,9 +124,12 @@ class Name(HostCase):
         self.assertEqual(r["result"], {"title": "Rust async runtimes", "emoji": "🦀"})
         self.assertGreater(r["meta"]["promptChars"], 0)
         argv = [a for a in self.argv_log() if a[0] == "respond"][0]
-        self.assertEqual(argv, ["respond", "--model", "system", "--no-stream", "--schema", os.path.join(self.support, "schemas", "name.json")])
-        # The prompt goes on stdin, never into argv where `ps` would show tab titles.
+        self.assertEqual(argv[:7], ["respond", "--model", "system", "--no-stream", "--schema", os.path.join(self.support, "schemas", "name.json"), "-i"])
+        self.assertIn("You name a browser tab group", argv[7])
+        self.assertEqual(len(argv), 8)
+        # Tab text goes on stdin, never into argv where `ps` would show it.
         self.assertIn("tokio.rs", self.stdin_log()[0])
+        self.assertNotIn("tokio", " ".join(argv))
 
     def test_json_wrapped_in_prose_and_fence(self):
         self.respond('Sure! Here it is:\n```json\n{"title": "Rust async", "emoji": "🦀"}\n```')
@@ -240,8 +243,8 @@ class ErrorCodes(HostCase):
     def test_strict_retry_appends_line(self):
         self.respond(json.dumps({"title": "Rust async", "emoji": "🦀"}))
         self.call("name", {"items": ITEMS3}, strict=True)
-        prompt = self.stdin_log()[0]
-        self.assertIn("Reply with only the object", prompt)
+        argv = [a for a in self.argv_log() if a[0] == "respond"][0]
+        self.assertIn("Reply with only the object", argv[argv.index("-i") + 1])
 
 
 class Organize(HostCase):
@@ -249,66 +252,97 @@ class Organize(HostCase):
         {"title": "Hotels in Lisbon", "url": "https://booking.com/lisbon"},
         {"title": "Lisbon travel guide", "url": "https://lonelyplanet.com/portugal/lisbon"},
         {"title": "Random page", "url": "https://example.org/"},
+        {"title": "Pasta recipe", "url": "https://cooking.example/pasta"},
+        {"title": "Rice recipe", "url": "https://cooking.example/rice"},
     ]
+    EXISTING = [{"g": 0, "title": "Lisbon trip", "samples": ["Flights to Lisbon", "Lisbon metro map"]}]
 
-    def test_nested_path(self):
-        self.respond(json.dumps({"groups": [
-            {"title": "Rust async", "emoji": "🦀", "color": "orange", "existing": -1, "members": [0, 1, 2]},
-            {"title": "", "emoji": "", "color": "", "existing": 0, "members": [3, 4]},
-        ], "leftovers": [5]}))
-        r = self.call("organize", {"items": self.ITEMS, "existingGroups": [{"g": 0, "title": "Lisbon trip"}], "maxGroups": 2})
+    def topics(self, pairs):
+        self.respond(json.dumps({"tabs": [{"index": i, "topic": t} for i, t in pairs]}))
+
+    def test_tabs_with_one_topic_form_groups_and_join_existing_ones(self):
+        # Indexes 8 and 9 are the existing group's example tabs (numbered after the 8 tabs to sort).
+        self.topics([(0, "Programming"), (1, "programming"), (2, "Programming."), (3, "Travel"), (4, "travel"),
+                     (5, "Other"), (6, "Cooking"), (7, "Cooking"), (8, "Travel"), (9, "Travel")])
+        r = self.call("organize", {"items": self.ITEMS, "existingGroups": self.EXISTING, "maxGroups": 4})
         self.assertTrue(r["ok"], r)
-        self.assertEqual(r["result"]["groups"][0], {"title": "", "emoji": "", "color": "", "existing": 0, "members": [3, 4]})
-        self.assertEqual(r["result"]["groups"][1]["title"], "Rust async")
+        self.assertEqual(r["meta"]["path"], "topics")
+        groups = r["result"]["groups"]
+        self.assertEqual(groups[0], {"title": "", "emoji": "", "color": "", "existing": 0, "members": [3, 4]})
+        new = sorted(g["members"] for g in groups[1:])
+        self.assertEqual(new, [[0, 1, 2], [6, 7]])
+        self.assertTrue(all(g["title"] == "" for g in groups[1:]))  # the naming loop titles new groups
         self.assertEqual(r["result"]["leftovers"], [5])
-        self.assertEqual(r["meta"]["path"], "nested")
 
-    def test_two_call_fallback(self):
-        os.remove(os.path.join(self.support, "schemas", "organize.json"))
-        for name in ("organize-labels.json", "organize-assign.json"):
-            open(os.path.join(self.support, "schemas", name), "w").write("{}")
+    def test_new_groups_are_named_right_away(self):
         self.control({"respond_queue": [
-            {"stdout": json.dumps({"labels": ["Rust async"], "emojis": ["🦀"], "colors": ["orange"]})},
-            {"stdout": json.dumps({"assignment": [1, 1, 1, 0, 0, -1]})},
+            {"stdout": json.dumps({"tabs": [{"index": i, "topic": t} for i, t in
+                                            [(0, "Programming"), (1, "Programming"), (2, "Programming"), (6, "Cooking"), (7, "Cooking")]]})},
+            {"stdout": json.dumps({"title": "Rust async runtimes", "emoji": "🦀"})},
+            {"stderr": "Error: The model's safety guardrails were triggered.\n", "exit": 1},
+            {"stderr": "Error: The model's safety guardrails were triggered.\n", "exit": 1},
         ]})
-        r = self.call("organize", {"items": self.ITEMS, "existingGroups": [{"g": 0, "title": "Lisbon trip"}], "maxGroups": 2})
+        r = self.call("organize", {"items": self.ITEMS, "existingGroups": self.EXISTING, "maxGroups": 4})
         self.assertTrue(r["ok"], r)
-        self.assertEqual(r["meta"]["path"], "two-call")
-        groups = {g.get("existing", -1): g for g in r["result"]["groups"]}
-        self.assertEqual(groups[0]["members"], [3, 4])
-        self.assertEqual(groups[-1]["title"], "Rust async")
-        self.assertEqual(groups[-1]["members"], [0, 1, 2])
-        self.assertEqual(r["result"]["leftovers"], [5])
-        prompts_sent = self.stdin_log()
-        self.assertEqual(len(prompts_sent), 2)
-        self.assertIn("1 | Rust async", prompts_sent[1])
+        by_members = {tuple(g["members"]): g for g in r["result"]["groups"]}
+        self.assertEqual((by_members[(0, 1, 2)]["title"], by_members[(0, 1, 2)]["emoji"]), ("Rust async runtimes", "🦀"))
+        self.assertEqual(by_members[(6, 7)]["title"], "")  # naming failed: the extension's naming loop takes it
+        name_calls = self.stdin_log()[1:]
+        self.assertIn("Tokio", name_calls[0])
+        self.assertIn('"Lisbon trip"', name_calls[0])  # existing titles are off limits
+
+    def test_a_topic_of_one_tab_is_a_leftover(self):
+        self.topics([(0, "Programming"), (1, "Programming"), (2, "Rust"), (3, "Travel"), (4, "Travel"), (5, "Web"), (6, "Food"), (7, "Cooking")])
+        r = self.call("organize", {"items": self.ITEMS, "maxGroups": 4})
+        self.assertEqual(sorted(g["members"] for g in r["result"]["groups"]), [[0, 1], [3, 4]])
+        self.assertEqual(r["result"]["leftovers"], [2, 5, 6, 7])
+
+    def test_prompt_rules_in_instructions_and_tabs_on_stdin(self):
+        self.topics([(0, "Programming")])
+        self.call("organize", {"items": self.ITEMS, "existingGroups": self.EXISTING})
+        argv = [a for a in self.argv_log() if a[0] == "respond"][0]
+        instructions = argv[argv.index("-i") + 1]
+        self.assertIn("broad topics", instructions)
+        self.assertNotIn("Lisbon", " ".join(argv))  # no tab or group text in the process list
+        body = self.stdin_log()[0]
+        self.assertIn("4 | Lisbon travel guide", body)
+        self.assertIn("8 | Flights to Lisbon | - | -", body)
+
+    def test_no_topics_is_bad_output(self):
+        self.respond(json.dumps({"tabs": []}))
+        r = self.call("organize", {"items": self.ITEMS})
+        self.assertEqual(r["error"]["code"], "BAD_MODEL_OUTPUT")
+
+    def test_context_overflow_suggests_a_smaller_batch(self):
+        self.respond(stderr="Error: The session's transcript exceeded the model's context size.\n", exit=1)
+        r = self.call("organize", {"items": self.ITEMS})
+        self.assertEqual(r["error"]["code"], "OVER_BUDGET")
+        self.assertEqual(r["error"]["allowedItems"], 5)
 
 
 class InstallSchemas(HostCase):
-    def test_nested_supported(self):
+    def test_writes_name_and_topics(self):
         for f in os.listdir(os.path.join(self.support, "schemas")):
             os.remove(os.path.join(self.support, "schemas", f))
         code, _, p = self.run_host(args=["--install-schemas"])
         self.assertEqual(code, 0, p.stderr)
-        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "organize.json"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.support, "schemas"))), ["name.json", "topics.json", "version"])
 
     def test_nested_object_gets_its_schema_from_fm_first(self):
-        # Real fm: `--object groups` must be followed by `--schema <json>` for the group's own schema.
+        # Real fm: `--object tabs` must be followed by `--schema <json>` for the item's own schema.
         for f in os.listdir(os.path.join(self.support, "schemas")):
             os.remove(os.path.join(self.support, "schemas", f))
         code, _, p = self.run_host(args=["--install-schemas"])
         self.assertEqual(code, 0, p.stderr)
         calls = [a for a in self.argv_log() if a[0] == "schema"]
-        group = next(a for a in calls if "Group" in a)
-        self.assertIn("--optional", group)  # "existing" is left out for new groups
-        organize = next(a for a in calls if "Organized" in a)
-        i = organize.index("--object")
-        self.assertEqual(organize[i + 1:i + 3], ["groups", "--schema"])
-        self.assertIn('"args"', organize[i + 3])  # the fake fm's output for the Group schema
-        self.assertEqual(organize[i + 4], "--array")
+        self.assertTrue(any("TabTopic" in a for a in calls))
+        topics = next(a for a in calls if "Topics" in a)
+        i = topics.index("--object")
+        self.assertEqual(topics[i + 1:i + 3], ["tabs", "--schema"])
+        self.assertIn('"args"', topics[i + 3])  # the fake fm's output for the TabTopic schema
+        self.assertEqual(topics[i + 4], "--array")
 
-    def test_schemas_from_an_older_host_are_rewritten(self):
-        # Hosts before schema version 2 could not build the nested schema on real fm and fell back to two calls.
+    def test_schemas_from_an_older_host_are_replaced(self):
         d = os.path.join(self.support, "schemas")
         for f in os.listdir(d):
             os.remove(os.path.join(d, f))
@@ -316,15 +350,8 @@ class InstallSchemas(HostCase):
             open(os.path.join(d, name), "w").write("{}")
         r = self.call("ping")
         self.assertTrue(r["result"]["schemasOk"], r)
-        self.assertEqual(r["result"]["organizeMode"], "nested")
-        self.assertEqual(open(os.path.join(d, "version")).read().strip(), host.SCHEMA_VERSION)
-
-    def test_falls_back_to_two_flat_schemas(self):
-        self.control({"schema_nested": False})
-        code, _, p = self.run_host(args=["--install-schemas"])
-        self.assertEqual(code, 0, p.stderr)
-        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.support, "schemas")) if f != "version"), ["name.json", "organize-assign.json", "organize-labels.json"])
-
+        self.assertEqual(r["result"]["organizeMode"], "topics")
+        self.assertEqual(sorted(os.listdir(d)), ["name.json", "topics.json", "version"])
 
     def test_first_use_writes_missing_schemas(self):
         for f in os.listdir(os.path.join(self.support, "schemas")):

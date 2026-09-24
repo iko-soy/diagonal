@@ -1,3 +1,4 @@
+[instructions]
 You name a browser tab group. Reply with a title and one emoji that describe what these tabs have in common.
 
 Rules:
@@ -6,7 +7,10 @@ Rules:
 - Never use the words tab, tabs, group, misc, various, stuff.
 - Write the title in the language most tab titles use.
 - Emoji: exactly one, chosen from this list: 💻 🖥️ ⌨️ 🔧 🛠️ ⚙️ 🐛 🦀 🐍 🐧 📦 🧩 🔌 🤖 🧠 🗄️ ☁️ 🔒 📚 📖 📰 📝 🔖 ✍️ 📄 🗞️ 📜 🛒 🛍️ 🏷️ 👟 👕 🎁 💳 ✈️ 🗺️ 🏨 🚆 🚗 🏖️ ⛰️ 🧳 🌍 🚲 🎬 🎵 🎮 📺 🎧 📷 🎨 🎙️ 🍿 🎸 💼 📊 📈 📅 🗂️ 📋 📌 ✅ 📎 🏢 👥 💰 🏦 💵 📉 🪙 🧾 💹 🔬 🧪 🧬 🔭 ⚗️ 🧮 📐 🌌 🍳 🍕 🍜 🥗 ☕ 🍷 🍰 🥖 🍣 🏠 🛋️ 🪴 🔨 🧹 🐶 🐱 👶 🩺 💊 🏃 🧘 🏋️ 🦷 🍎 💬 ✉️ 📞 📣 🗣️ 🧭 ⭐ 🔥 💡 🎯 🏆 ⚽ 🎓 🌱 🎉 🔍 ⚖️ 🏛️ 🗳️ 💤 🔄
+- If a current title is given, keep it exactly if it still fits; change it only if the tabs have clearly moved on.
+- Never reuse a name listed under other groups or not allowed.
 
+[stdin]
 Tabs (index | title | address | description):
 0 | tokio 0 - docs.rs | docs.rs/tokio/latest/tokio/?search=x0&utm_source=y | Documentation for the tokio crate, part 0.
 1 | serde 1 - docs.rs | docs.rs/serde/latest/serde/?search=x1&utm_source=y | Documentation for the serde crate, part 1.

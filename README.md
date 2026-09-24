@@ -135,8 +135,9 @@ Every push to `master` runs `.github/workflows/release.yml`: it typechecks, runs
 Checked on a Mac running macOS 27.0 (26A428) on 2026-09-24; the tests' fake `fm` follows it.
 
 - `fm` is at `/usr/bin/fm`. Until an admin runs `sudo fm license`, every command exits 69 with a terms notice; `fm license --status` reports the state. The installer offers the terms in the terminal; if they are declined, Diagonal reports `LICENSE_REQUIRED` with the fix. The host writes its schemas on first use, so install order does not matter.
-- `fm schema object` builds the schemas. A nested object needs its own schema: `--object groups --schema "<json from another fm schema object>" --array`. The host does that for `organize.json` (see `SUB_SCHEMAS` in `host/diagonal-host.py`) and keeps the two flat schemas plus two calls as a fallback.
-- `fm respond` reads the prompt from stdin when no prompt argument is given, so the host never puts tab titles in the process list. There is no timeout flag; the host enforces its own.
+- `fm schema object` builds the schemas. A nested object needs its own schema: `--object tabs --schema "<json from another fm schema object>" --array` (see `SUB_SCHEMAS` in `host/diagonal-host.py`).
+- Organize asks for one broad topic per tab ("Programming", "Travel"), and the host groups tabs that share one, joins a topic to an existing group when that group's example tabs got the same topic, and names each new group with the name call. Asking the model for whole groups did not work: it put nearly every new group into existing group 0, and specific topics gave every tab its own.
+- `fm respond` reads the prompt from stdin when no prompt argument is given. The host passes its fixed rules with `-i` and the tab text on stdin, so tab titles never show in the process list and are harder to use to override the rules. There is no timeout flag; the host enforces its own.
 - The only model is `system` (`--model pcc` is rejected), so Diagonal always uses the on-device model.
 - The context is about 8,000 tokens for prompt and reply together (38,000 characters worked, 40,000 overflowed). `CHAR_BUDGET` is 24,000 characters.
 - The safety layer sometimes refuses harmless text ("The model's safety guardrails were triggered."). The host retries such a call once with `--guardrails permissive-content-transformations`.

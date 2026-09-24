@@ -189,30 +189,44 @@ def validate_organize(out, payload):
     return {"groups": groups, "leftovers": sorted(set(leftovers))}
 
 
-def organize_from_two_calls(labels_out, assign_out, payload):
-    """Rebuild the one-call shape from the flat fallback replies, then validate it as usual."""
-    labels = [x for x in (labels_out or {}).get("labels") or [] if isinstance(x, str)]
-    emojis = (labels_out or {}).get("emojis") or []
-    colors = (labels_out or {}).get("colors") or []
-    n_existing = len(payload.get("existingGroups") or [])
-    assignment = (assign_out or {}).get("assignment")
-    if not isinstance(assignment, list):
-        raise ValidationError("assignment is not a list")
-    buckets = {}
-    for i, target in enumerate(assignment[: len(payload.get("items", []))]):
-        if isinstance(target, int) and not isinstance(target, bool) and 0 <= target < n_existing + len(labels):
-            buckets.setdefault(target, []).append(i)
+VAGUE_TOPICS = {"other", "others", "misc", "miscellaneous", "general", "various", "unknown", "none", "n/a", "-"}
+
+
+def _norm_topic(t):
+    t = " ".join(str(t or "").split()).strip(" .,:;!?\"'").casefold()
+    return "" if t in VAGUE_TOPICS else t
+
+
+def organize_from_topics(out, payload, owner):
+    """Tabs that share a topic form a group. A topic that an existing group's example tabs have joins that
+    group; others become new groups (titled later by the naming loop) or leftovers when too small.
+    `owner` maps the example tabs' indexes to their group number (prompts.topic_items)."""
+    if not isinstance(out, dict) or not isinstance(out.get("tabs"), list):
+        raise ValidationError("tabs is not a list")
+    n_items = len(payload.get("items", []))
+    tab_topic, group_votes = {}, {}
+    for t in out["tabs"]:
+        if not isinstance(t, dict):
+            continue
+        i, topic = t.get("index"), _norm_topic(t.get("topic"))
+        if isinstance(i, bool) or not isinstance(i, int) or not topic:
+            continue
+        if 0 <= i < n_items:
+            tab_topic.setdefault(i, topic)
+        elif i in owner:
+            votes = group_votes.setdefault(topic, {})
+            votes[owner[i]] = votes.get(owner[i], 0) + 1
+    if not tab_topic:
+        raise ValidationError("no tab got a topic")
+    clusters = {}
+    for i in sorted(tab_topic):
+        clusters.setdefault(tab_topic[i], []).append(i)
     groups = []
-    for target, members in sorted(buckets.items()):
-        if target < n_existing:
-            groups.append({"existing": target, "members": members})
+    for topic, members in clusters.items():
+        votes = group_votes.get(topic)
+        if votes:
+            g = max(sorted(votes), key=lambda k: votes[k])
+            groups.append({"existing": g, "members": members})
         else:
-            k = target - n_existing
-            groups.append({
-                "title": labels[k],
-                "emoji": emojis[k] if k < len(emojis) else "",
-                "color": colors[k] if k < len(colors) else "",
-                "existing": -1,
-                "members": members,
-            })
+            groups.append({"title": "", "emoji": "", "color": "", "members": members})
     return validate_organize({"groups": groups, "leftovers": []}, payload)

@@ -39,22 +39,19 @@ def main():
         print(json.dumps({"schema": argv[1:]}))
         return
     if argv[0] == "respond":
+        # Like the real fm: rules arrive with -i, the tab list on stdin.
+        instructions = argv[argv.index("-i") + 1] if "-i" in argv else ""
         prompt = sys.stdin.read()
-        if prompt.startswith("You name"):
+        if instructions.startswith("You name"):
             found = topic_of(prompt.split("Tabs (", 1)[-1]) or ("Reading list", "📚", "grey")
             print(json.dumps({"title": found[0], "emoji": found[1]}))
             return
-        if prompt.startswith("You sort"):
-            buckets = {}
-            leftovers = []
+        if instructions.startswith("You label"):
+            tabs = []
             for i, rest in items(prompt):
                 t = topic_of(rest)
-                if t:
-                    buckets.setdefault(t, []).append(i)
-                else:
-                    leftovers.append(i)
-            groups = [{"title": t[0], "emoji": t[1], "color": t[2], "existing": -1, "members": m} for t, m in buckets.items()]
-            print(json.dumps({"groups": groups, "leftovers": leftovers}))
+                tabs.append({"index": i, "topic": t[0].split()[0] if t else f"Other {i}"})
+            print(json.dumps({"tabs": tabs}))
             return
     sys.stderr.write("unexpected fm call\n")
     sys.exit(1)

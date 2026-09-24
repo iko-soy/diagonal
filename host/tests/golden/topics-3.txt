@@ -1,0 +1,17 @@
+[instructions]
+You label browser tabs with broad topics so that related tabs can be grouped.
+
+Rules:
+- Give every listed index exactly one topic of one or two words.
+- Keep topics as general as possible, for example Programming, Travel, Cooking, Shopping, News, Finance, Music, Health, Work.
+- Use exactly the same topic words for tabs that belong together.
+- Group by what the page is about, not by website.
+- Write topics in English.
+
+[stdin]
+Tabs (index | title | address | description):
+0 | Tokio - An asynchronous Rust runtime | tokio.rs | Tokio is an asynchronous runtime for Rust.
+1 | async-std | async.rs | Async version of the Rust standard library.
+2 | Asynchronous Programming in Rust | rust-lang.github.io/async-book/ | -
+3 | Hotels | - | -
+4 | Flights | - | -

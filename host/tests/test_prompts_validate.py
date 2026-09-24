@@ -17,7 +17,8 @@ def items24():
 
 
 class Golden(unittest.TestCase):
-    def check(self, name, text):
+    def check(self, name, p):
+        text = "[instructions]\n" + p.instructions + "\n\n[stdin]\n" + p.text
         path = os.path.join(GOLDEN, name)
         if UPDATE or not os.path.exists(path):
             os.makedirs(GOLDEN, exist_ok=True)
@@ -27,16 +28,16 @@ class Golden(unittest.TestCase):
     def test_name_3(self):
         p = prompts.build_name_prompt({"items": ITEMS3, "currentTitle": "Rust async", "siblingTitles": ["Lisbon trip"]})
         self.check("name-3.txt", p)
-        self.assertLessEqual(len(p), 10_000)
+        self.assertLessEqual(prompts.size(p), 24_000)
 
     def test_name_24(self):
         p = prompts.build_name_prompt({"items": items24(), "siblingTitles": []})
         self.check("name-24.txt", p)
-        self.assertLessEqual(len(p), 10_000)
+        self.assertLessEqual(prompts.size(p), 24_000)
 
     def test_organize(self):
-        p = prompts.build_organize_prompt({"items": ITEMS3, "existingGroups": [{"g": 0, "title": "Lisbon trip", "samples": ["Hotels", "Flights"]}], "maxGroups": 1})
-        self.check("organize-3.txt", p)
+        p = prompts.build_topics_prompt({"items": ITEMS3, "existingGroups": [{"g": 0, "title": "Lisbon trip", "samples": ["Hotels", "Flights"]}], "maxGroups": 1})
+        self.check("topics-3.txt", p)
 
 
 class Rendering(unittest.TestCase):

@@ -60,7 +60,7 @@ class HostCase(unittest.TestCase):
         os.chmod(self.fm, 0o755)
         self.support = os.path.join(self.tmp, "support")
         os.makedirs(os.path.join(self.support, "schemas"))
-        for name in ("name.json", "organize.json"):
+        for name in ("name.json", "topics.json"):
             with open(os.path.join(self.support, "schemas", name), "w") as f:
                 f.write("{}")
         with open(os.path.join(self.support, "schemas", "version"), "w") as f:

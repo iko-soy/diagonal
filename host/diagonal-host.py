@@ -43,25 +43,17 @@ MAX_REQUEST = 64 * 1024 * 1024
 MAX_REPLY = 1024 * 1024
 OPS = {"ping", "name", "organize"}
 
-# `fm schema` argument lists (section 8), checked against fm on macOS 27. `--object NAME` takes the
-# nested object's schema as JSON from `--schema`; "{Group}" is replaced by the output of SUB_SCHEMAS["Group"].
-# If the nested form fails, --install-schemas writes the two flat schemas and `organize` takes two calls.
+# `fm schema` argument lists (section 8), checked against fm on macOS 27. `--object NAME` takes the nested
+# object's schema as JSON from `--schema`; "{TabTopic}" is replaced by the output of SUB_SCHEMAS["TabTopic"].
 SUB_SCHEMAS = {
-    "Group": ["schema", "object", "--name", "Group",
-              "--string", "title", "--string", "emoji", "--string", "color",
-              "--integer", "existing", "--optional", "--integer", "members", "--array"],
+    "TabTopic": ["schema", "object", "--name", "TabTopic", "--integer", "index", "--string", "topic"],
 }
 SCHEMA_COMMANDS = {
     "name.json": ["schema", "object", "--name", "GroupName", "--string", "title", "--string", "emoji"],
-    "organize.json": ["schema", "object", "--name", "Organized",
-                      "--object", "groups", "--schema", "{Group}", "--array",
-                      "--integer", "leftovers", "--array"],
+    "topics.json": ["schema", "object", "--name", "Topics", "--object", "tabs", "--schema", "{TabTopic}", "--array"],
 }
-FALLBACK_SCHEMA_COMMANDS = {
-    "organize-labels.json": ["schema", "object", "--name", "TopicLabels",
-                             "--string", "labels", "--array", "--string", "emojis", "--array", "--string", "colors", "--array"],
-    "organize-assign.json": ["schema", "object", "--name", "Assignment", "--integer", "assignment", "--array"],
-}
+# Organize schemas written by older hosts; removed when the current ones are installed.
+LEGACY_SCHEMAS = ["organize.json", "organize-labels.json", "organize-assign.json"]
 
 
 class Fail(Exception):
@@ -195,9 +187,10 @@ def schema_path(name):
 
 
 def check_budget(prompt, n_items):
-    if len(prompt) > CHAR_BUDGET:
-        allowed = max(1, int(n_items * CHAR_BUDGET / len(prompt)))
-        raise Fail("OVER_BUDGET", f"prompt is {len(prompt)} chars, budget {CHAR_BUDGET}", retryable=True, allowedItems=allowed)
+    size = prompts.size(prompt)
+    if size > CHAR_BUDGET:
+        allowed = max(1, int(n_items * CHAR_BUDGET / size))
+        raise Fail("OVER_BUDGET", f"prompt is {size} chars, budget {CHAR_BUDGET}", retryable=True, allowedItems=allowed)
 
 
 def extract_json(stdout):
@@ -220,9 +213,11 @@ def extract_json(stdout):
 # fm's safety layer sometimes refuses harmless tab lists. Naming tabs only restates their own text, so a
 # refused call is retried once in the mode Apple provides for transforming given content.
 PERMISSIVE = ["--guardrails", "permissive-content-transformations"]
+USAGE_EXIT = 64
 
 
 def run_fm(prompt, schema, model, timeout_s):
+    """`prompt` is a prompts.Prompt: its fixed rules go to -i, the tab text on stdin."""
     try:
         return _run_fm(prompt, schema, model, timeout_s, [])
     except Fail as f:
@@ -232,11 +227,11 @@ def run_fm(prompt, schema, model, timeout_s):
 
 
 def _run_fm(prompt, schema, model, timeout_s, extra):
-    # The prompt goes on stdin (fm reads it there when no prompt argument is given), so tab titles never
-    # show up in the process list. fm has no timeout of its own; subprocess enforces ours.
-    args = [FM, "respond", "--model", model, "--no-stream", "--schema", schema, *extra]
+    # The tab text goes on stdin (fm reads it there when no prompt argument is given), so it never shows up
+    # in the process list. fm has no timeout of its own; subprocess enforces ours.
+    args = [FM, "respond", "--model", model, "--no-stream", "--schema", schema, "-i", prompt.instructions, *extra]
     try:
-        p = subprocess.run(args, input=prompt, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
+        p = subprocess.run(args, input=prompt.text, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
     except FileNotFoundError:
         raise Fail("MODEL_UNAVAILABLE", f"fm not found at {FM} — requires macOS 27")
     except subprocess.TimeoutExpired:
@@ -245,18 +240,16 @@ def _run_fm(prompt, schema, model, timeout_s, extra):
         code = classify(p.stderr, p.returncode)
         if code == "LICENSE_REQUIRED":
             raise Fail(code, LICENSE_MESSAGE, raw=(p.stderr or "")[:2000])
-        raise Fail(code, (p.stderr or f"fm exited {p.returncode}").strip()[:500], retryable=True, raw=(p.stderr or "")[:2000])
+        # 64 is fm's usage error (unknown flag or value): the same call fails the same way again.
+        raise Fail(code, (p.stderr or f"fm exited {p.returncode}").strip()[:500], retryable=p.returncode != USAGE_EXIT,
+                   raw=(p.stderr or "")[:2000])
     return extract_json(p.stdout)
 
 
 # ----- ops --------------------------------------------------------------------------------------
 
 def organize_mode():
-    if schema_path("organize.json"):
-        return "nested"
-    if schema_path("organize-labels.json") and schema_path("organize-assign.json"):
-        return "two-call"
-    return "missing"
+    return "topics" if schema_path("topics.json") else "missing"
 
 
 def op_ping(_payload, _opts):
@@ -285,9 +278,9 @@ def op_ping(_payload, _opts):
     return reply
 
 
-# Bumped when SCHEMA_COMMANDS change, so schemas written by an older host are rewritten. Version 2: the
-# nested organize schema in the form fm actually accepts (older hosts fell back to two calls).
-SCHEMA_VERSION = "2"
+# Bumped when SCHEMA_COMMANDS change, so schemas written by an older host are rewritten. Version 3: organize
+# asks for one topic per tab (topics.json) instead of whole groups.
+SCHEMA_VERSION = "3"
 
 
 def schemas_current():
@@ -318,6 +311,14 @@ def ensure_schemas():
         raise Fail("SCHEMA_MISSING", f"fm could not write Diagonal's schema files: {why}"[:500], raw=out.getvalue()[-2000:])
 
 
+def _fit_overflow(f, n_items):
+    """fm's own context-size error carries no item count; estimate one so the extension can split the batch."""
+    if f.code == "OVER_BUDGET" and "allowedItems" not in f.extra:
+        f.extra["allowedItems"] = max(1, (n_items * 2) // 3)
+        f.retryable = True
+    return f
+
+
 def op_name(payload, opts):
     ensure_schemas()
     schema = schema_path("name.json")
@@ -325,35 +326,56 @@ def op_name(payload, opts):
         raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'name.json')}")
     prompt = prompts.build_name_prompt(payload, strict=opts.get("strict", False))
     check_budget(prompt, len(payload["items"]))
-    out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
     try:
-        return validate.validate_name(out, payload), len(prompt), "name"
+        out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
+    except Fail as f:
+        raise _fit_overflow(f, len(payload["items"]))
+    try:
+        return validate.validate_name(out, payload), prompts.size(prompt), "name"
     except validate.ValidationError as e:
         raise Fail("BAD_MODEL_OUTPUT", str(e), retryable=True, raw=json.dumps(out, ensure_ascii=False)[:2000])
 
 
 def op_organize(payload, opts):
-    strict = opts.get("strict", False)
     ensure_schemas()
-    mode = organize_mode()
+    schema = schema_path("topics.json")
+    if not schema:
+        raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'topics.json')}")
+    prompt = prompts.build_topics_prompt(payload, strict=opts.get("strict", False))
+    check_budget(prompt, len(payload["items"]))
     try:
-        if mode == "nested":
-            prompt = prompts.build_organize_prompt(payload, strict=strict)
-            check_budget(prompt, len(payload["items"]))
-            out = run_fm(prompt, schema_path("organize.json"), opts["model"], opts["timeout_s"])
-            return validate.validate_organize(out, payload), len(prompt), "nested"
-        if mode == "two-call":
-            p1 = prompts.build_labels_prompt(payload, strict=strict)
-            check_budget(p1, len(payload["items"]))
-            labels = run_fm(p1, schema_path("organize-labels.json"), opts["model"], opts["timeout_s"])
-            names = [x for x in (labels.get("labels") or []) if isinstance(x, str)] if isinstance(labels, dict) else []
-            p2 = prompts.build_assign_prompt(payload, names, strict=strict)
-            check_budget(p2, len(payload["items"]))
-            assign = run_fm(p2, schema_path("organize-assign.json"), opts["model"], opts["timeout_s"])
-            return validate.organize_from_two_calls(labels, assign, payload), len(p1) + len(p2), "two-call"
+        out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
+    except Fail as f:
+        raise _fit_overflow(f, len(payload["items"]))
+    _, owner = prompts.topic_items(payload)
+    try:
+        result = validate.organize_from_topics(out, payload, owner)
     except validate.ValidationError as e:
-        raise Fail("BAD_MODEL_OUTPUT", str(e), retryable=True)
-    raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'organize.json')}")
+        raise Fail("BAD_MODEL_OUTPUT", str(e), retryable=True, raw=json.dumps(out, ensure_ascii=False)[:2000])
+    chars = prompts.size(prompt) + name_new_groups(result, payload, opts, time.time() + opts["timeout_s"])
+    return result, chars, "topics"
+
+
+def name_new_groups(result, payload, opts, deadline):
+    """Title each new group with the name op (well under a second each on fm), so groups appear named.
+    A group that fails, or runs past the deadline, keeps "" and the extension's naming loop names it."""
+    taken = [g.get("title") for g in payload.get("existingGroups") or [] if g.get("title")]
+    chars = 0
+    for g in result["groups"]:
+        if "existing" in g or g.get("title"):
+            continue
+        left = deadline - time.time()
+        if left < 5:
+            break
+        sub = {"items": [dict(payload["items"][i], i=n) for n, i in enumerate(g["members"])], "siblingTitles": taken[:20]}
+        try:
+            named, n, _ = op_name(sub, {**opts, "timeout_s": min(opts["timeout_s"], left)})
+        except Fail:
+            continue
+        g["title"], g["emoji"] = named["title"], named["emoji"]
+        taken.append(named["title"])
+        chars += n
+    return chars
 
 
 def handle(req):
@@ -453,24 +475,16 @@ def install_schemas():
         print("  Diagonal writes its schemas on its own once that is done.", file=sys.stderr)
         return INSTALL_LICENSE_EXIT
     ok &= first is True
-    nested = write("organize.json", SCHEMA_COMMANDS["organize.json"])
-    if nested is True:
-        for name in FALLBACK_SCHEMA_COMMANDS:
+    topics = write("topics.json", SCHEMA_COMMANDS["topics.json"])
+    if topics == "license":
+        return INSTALL_LICENSE_EXIT
+    ok &= topics is True
+    if ok:
+        for name in LEGACY_SCHEMAS:
             try:
                 os.remove(os.path.join(SCHEMAS, name))
             except FileNotFoundError:
                 pass
-    elif nested != "rejected":
-        # fm did not get as far as judging the schema: no reason to think nesting is unsupported.
-        return INSTALL_LICENSE_EXIT if nested == "license" else 1
-    else:
-        print("  nested organize schema unsupported; using the two-call fallback", file=sys.stderr)
-        try:
-            os.remove(os.path.join(SCHEMAS, "organize.json"))
-        except FileNotFoundError:
-            pass
-        for name, args in FALLBACK_SCHEMA_COMMANDS.items():
-            ok &= write(name, args) is True
     if ok:
         with open(os.path.join(SCHEMAS, "version"), "w", encoding="utf-8") as f:
             f.write(SCHEMA_VERSION + "\n")
@@ -502,7 +516,7 @@ def selftest():
         check("fm terms accepted", False, f"run: {LICENSE_FIX}")
     else:
         check("model available (fm available --model system)", ping["fmAvailable"], ping["fmMessage"])
-    for name in ["name.json", *(list(FALLBACK_SCHEMA_COMMANDS) if organize_mode() == "two-call" else ["organize.json"])]:
+    for name in SCHEMA_COMMANDS:
         path = os.path.join(SCHEMAS, name)
         readable = os.path.isfile(path) and os.path.getsize(path) > 0
         hint = f"written on their own after {LICENSE_FIX}" if ping["licenseRequired"] else "missing: run diagonal-host --install-schemas"

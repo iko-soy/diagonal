@@ -47,7 +47,8 @@ export function notices(s: Health): Notice[] {
         out.push({
           tone: "bad", title: "Finish setting up Diagonal",
           body: "Diagonal's helper isn't registered with this browser yet. Run this in Terminal, then reopen Diagonal.",
-          command: "brew reinstall diagonal",
+          // A Web Store install has an update_url and may never have had the cask; an unpacked one came from it.
+          command: chrome.runtime.getManifest().update_url ? "brew install iko-soy/tap/diagonal" : "brew reinstall diagonal",
         });
         break;
       case "LICENSE_REQUIRED":
@@ -69,7 +70,11 @@ export function notices(s: Health): Notice[] {
         out.push({ tone: "bad", title: "The helper doesn't recognize this extension", body: "Reinstalling registers it again.", command: "brew reinstall diagonal" });
         break;
       case "SCHEMA_MISSING":
-        out.push({ tone: "bad", title: "The helper is missing files", body: "Run this in Terminal to restore them.", command: "diagonal-host --install-schemas" });
+        out.push({
+          tone: "bad", title: "The model isn't set up yet",
+          body: `${e.message}. Diagonal keeps retrying on its own. This shows the full reason:`,
+          command: "~/.local/bin/diagonal-host --selftest",
+        });
         break;
       default:
         out.push({ tone: "bad", title: "Naming is paused", body: s.message || "The helper didn't answer. Diagonal retries on its own." });

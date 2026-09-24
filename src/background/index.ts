@@ -6,6 +6,7 @@ import { AutoOrganizer, organizeWindow, undoOrganize, UNDO_WINDOW_MS as ORGANIZE
 import { addToGroup, createManagedGroup, ungroup, updateGroup, type Runtime } from "./runtime";
 import { withDefaults, type Settings } from "./settings";
 import { markDirty, migrate, newGroupRecord, type GroupRecord, type HostError, type PingResult, type State, type TabRecord } from "./state";
+import { readDisk, shouldReload, TRIED_KEY, UPDATE_CHECK_MINUTES } from "./selfupdate";
 import { forgetArchived, parkedTitle, restoreAll, restoreArchived, runSweep, undoSweep, UNDO_WINDOW_MS as SWEEP_UNDO_MS } from "./tidy";
 
 /** Event wiring only: every rule lives in engine / naming / organize / tidy. */
@@ -16,6 +17,7 @@ const ALARM_NAMING = "naming-fallback";
 const ALARM_TIDY = "tidy-sweep";
 const ALARM_HOST = "host-retry";
 const ALARM_AUTO = "auto-organize";
+const ALARM_UPDATE = "self-update";
 const HOST_RETRY_MS = 600_000;
 
 // ----- state cache ------------------------------------------------------------------------------
@@ -131,7 +133,7 @@ async function ping(): Promise<HostReply<PingResult>> {
     } else if (!reply.result.fmAvailable) {
       recordHostError({ code: "MODEL_UNAVAILABLE", message: reply.result.fmMessage || "fm reports the model unavailable" });
     } else if (!reply.result.schemasOk) {
-      recordHostError({ code: "SCHEMA_MISSING", message: "schema files missing" });
+      recordHostError({ code: "SCHEMA_MISSING", message: reply.result.schemaMessage || "fm could not write Diagonal's schema files" });
     } else {
       h.pausedUntil = undefined;
       h.lastError = undefined;
@@ -466,8 +468,28 @@ if (GROUPS_SUPPORTED) {
   chrome.tabGroups.onRemoved.addListener((g) => void serial("tabGroups.onRemoved", () => feed({ type: "groupRemoved", groupId: g.id })));
 }
 
+// ----- self-update -------------------------------------------------------------------------------
+
+/** After `brew upgrade`, reload into the new files on disk so nobody has to click reload. */
+async function checkForUpdate(): Promise<void> {
+  const self = await chrome.management.getSelf().catch(() => undefined);
+  if (self?.installType !== "development") return; // store installs update themselves
+  if (busyCount > 0) return; // a model call is in flight; the next check picks it up
+  const disk = await readDisk(fetch, (p) => chrome.runtime.getURL(p));
+  const lastTried = (await chrome.storage.local.get(TRIED_KEY))[TRIED_KEY] as string | undefined;
+  if (!shouldReload({ running: chrome.runtime.getManifest().version, lastTried, ...disk })) return;
+  await chrome.storage.local.set({ [TRIED_KEY]: disk.onDisk });
+  console.info(`[diagonal] reloading into ${disk.onDisk} from disk`);
+  chrome.runtime.reload();
+}
+
+void (async () => {
+  if (!(await chrome.alarms.get(ALARM_UPDATE))) chrome.alarms.create(ALARM_UPDATE, { periodInMinutes: UPDATE_CHECK_MINUTES, delayInMinutes: 1 });
+})();
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
+    if (alarm.name === ALARM_UPDATE) return void checkForUpdate().catch((e) => logError("self-update", e));
     await ready;
     if (alarm.name === ALARM_NAMING) await naming.sweepDirty();
     else if (alarm.name === ALARM_AUTO) await autoOrganizer.sweep();
@@ -537,6 +559,7 @@ chrome.runtime.onMessage.addListener((msg: Msg, sender, sendResponse) => {
 async function handleCommand(msg: Msg): Promise<unknown> {
   switch (msg.cmd) {
     case "status":
+      void checkForUpdate().catch((e) => logError("self-update", e)); // opening the popup checks too
       return statusFor(msg.windowId);
     case "ping":
       return ping();

@@ -55,6 +55,17 @@ class Origin(HostCase):
         code, reply, _ = self.run_host({"v": 1, "id": "p", "op": "ping", "payload": {}}, origin=host.ALLOWED_ORIGIN.rstrip("/"))
         self.assertTrue(reply["ok"])
 
+    def test_store_origin_is_accepted_once_set(self):
+        store = "chrome-extension://" + "b" * 32 + "/"
+        self.assertFalse(host.origin_ok(store))
+        saved, host.STORE_ORIGIN = host.STORE_ORIGIN, store
+        try:
+            self.assertTrue(host.origin_ok(store))
+            self.assertTrue(host.origin_ok(host.ALLOWED_ORIGIN))
+            self.assertEqual(host.manifest_for("/x/diagonal-host")["allowed_origins"], [host.ALLOWED_ORIGIN, store])
+        finally:
+            host.STORE_ORIGIN = saved
+
     def test_origin_is_pinned(self):
         self.assertRegex(host.ALLOWED_ORIGIN, r"^chrome-extension://[a-p]{32}/$")
 
@@ -80,6 +91,15 @@ class Ping(HostCase):
         self.assertFalse(r["result"]["fmAvailable"])
         self.assertTrue(r["result"]["licenseRequired"])
         self.assertIn("sudo fm license", r["result"]["fmMessage"])
+
+    def test_ping_says_why_schemas_could_not_be_written(self):
+        for f in os.listdir(os.path.join(self.support, "schemas")):
+            os.remove(os.path.join(self.support, "schemas", f))
+        self.control({"schema_fail": True})
+        r = self.call("ping")
+        self.assertTrue(r["ok"], r)
+        self.assertFalse(r["result"]["schemasOk"])
+        self.assertIn("fm could not write", r["result"]["schemaMessage"])
 
     def test_ping_writes_missing_schemas_once_fm_works(self):
         for f in os.listdir(os.path.join(self.support, "schemas")):

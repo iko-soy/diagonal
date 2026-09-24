@@ -119,7 +119,7 @@ export function explain(error: HostError | undefined, extensionId = ""): string 
     case "LICENSE_REQUIRED":
       return "Apple's fm tool needs its terms accepted once on this Mac. In Terminal, run: sudo fm license. Diagonal picks up from there on its own.";
     case "SCHEMA_MISSING":
-      return "Schemas missing. Run: diagonal-host --install-schemas";
+      return `${error.message}. Diagonal retries on its own; to see the full reason, run in Terminal: ~/.local/bin/diagonal-host --selftest`;
     case "MODEL_UNAVAILABLE":
       return `On-device model unavailable: ${error.message}. Check System Settings → Apple Intelligence & Siri.`;
     case "RATE_LIMITED":

@@ -1,0 +1,22 @@
+name: Nix
+
+# Builds the flake's packages on Linux and on Apple silicon, so flake.nix doesn't rot unnoticed.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Build the host and the extension
+        run: nix build .#diagonal-host .#extension -L --no-link --print-out-paths
+      - name: Evaluate the flake
+        run: nix flake check --no-build

@@ -50,6 +50,8 @@ jobs:
           # Homebrew cask (iko-soy/homebrew-tap, Casks/diagonal.rb) downloads.
           cp "diagonal-extension-${DIAGONAL_VERSION}.zip" diagonal-extension.zip
           cat dist/manifest.json | head -5
+          # The Chrome Web Store package: no pinned key, no bundled host (docs/store/listing.md).
+          npm run zip:store
 
       - name: Publish release
         env:
@@ -60,7 +62,29 @@ jobs:
           notes="Built from ${GITHUB_SHA::7}. Install with: brew install iko-soy/tap/diagonal. Or by hand: unzip, load the folder at brave://extensions (Developer mode → Load unpacked), then install the native host once from Terminal: bash <that folder>/install-host.command"
           if gh release view "$VERSION" >/dev/null 2>&1; then
             # Two commits in the same minute share a version: refresh the asset on the existing release.
-            gh release upload "$VERSION" "$asset" diagonal-extension.zip --clobber
+            gh release upload "$VERSION" "$asset" diagonal-extension.zip diagonal-store.zip --clobber
           else
-            gh release create "$VERSION" "$asset" diagonal-extension.zip --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes" --latest
+            gh release create "$VERSION" "$asset" diagonal-extension.zip diagonal-store.zip --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes" --latest
           fi
+
+      # Uploads the release to the Chrome Web Store and submits it for review, once the listing exists and
+      # its API credentials are set as repository secrets (docs/store/listing.md). Skipped until then.
+      - name: Upload to the Chrome Web Store
+        env:
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$CWS_EXTENSION_ID" ] || [ -z "$CWS_REFRESH_TOKEN" ]; then
+            echo "Chrome Web Store secrets not set; skipping upload."
+            exit 0
+          fi
+          token=$(curl -fsS https://oauth2.googleapis.com/token \
+            -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | jq -r .access_token)
+          curl -fsS -X PUT -H "Authorization: Bearer $token" -H "x-goog-api-version: 2" \
+            -T diagonal-store.zip "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$CWS_EXTENSION_ID" | tee upload.json
+          jq -e '.uploadState == "SUCCESS"' upload.json
+          curl -fsS -X POST -H "Authorization: Bearer $token" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$CWS_EXTENSION_ID/publish" | tee publish.json

@@ -25,9 +25,12 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import prompts  # noqa: E402
 import validate  # noqa: E402
 
-HOST_VERSION = "0.1.0"
+HOST_VERSION = "0.1.0"  # release builds stamp the extension version here (scripts/build.mjs)
 HOST_NAME = "io.diagonal.host"
 ALLOWED_ORIGIN = "chrome-extension://mpnodlalikgeehnlnofdkpgapkmbkjdf/"
+# The Chrome Web Store gives the listed extension its own ID. Once the listing exists, put its origin here
+# ("chrome-extension://<store id>/") so the store install and the unpacked one can both use the host.
+STORE_ORIGIN = ""
 FM = os.environ.get("DIAGONAL_FM", "/usr/bin/fm")  # tests point this at host/tests/fake_fm.py
 SUPPORT = os.environ.get("DIAGONAL_SUPPORT_DIR", os.path.expanduser("~/Library/Application Support/Diagonal"))
 SCHEMAS = os.path.join(SUPPORT, "schemas")
@@ -247,11 +250,18 @@ def op_ping(_payload, _opts):
             license_required, msg = True, LICENSE_MESSAGE
     except subprocess.TimeoutExpired:
         ok, msg = False, "fm available timed out"
+    schema_message = None
     if ok:
-        ensure_schemas()
+        try:
+            ensure_schemas()
+        except Fail as f:
+            schema_message = f.message
     mode = organize_mode()
-    return {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": ok, "fmMessage": msg,
-            "licenseRequired": license_required, "schemasOk": schemas_ok(), "organizeMode": mode}
+    reply = {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": ok, "fmMessage": msg,
+             "licenseRequired": license_required, "schemasOk": schemas_ok(), "organizeMode": mode}
+    if schema_message:
+        reply["schemaMessage"] = schema_message
+    return reply
 
 
 def schemas_ok():
@@ -263,17 +273,22 @@ def ensure_schemas():
     accepted after the installer ran). stdout is the native-messaging channel: progress lines are swallowed."""
     if schemas_ok():
         return
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
         rc = install_schemas()
     if rc == INSTALL_LICENSE_EXIT:
         raise Fail("LICENSE_REQUIRED", LICENSE_MESSAGE)
+    if not schemas_ok():
+        lines = [ln for ln in out.getvalue().splitlines() if ln.strip()]
+        why = lines[-1] if lines else f"fm schema exited {rc}"
+        raise Fail("SCHEMA_MISSING", f"fm could not write Diagonal's schema files: {why}"[:500], raw=out.getvalue()[-2000:])
 
 
 def op_name(payload, opts):
     ensure_schemas()
     schema = schema_path("name.json")
     if not schema:
-        raise Fail("SCHEMA_MISSING", os.path.join(SCHEMAS, "name.json"))
+        raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'name.json')}")
     prompt = prompts.build_name_prompt(payload, strict=opts.get("strict", False))
     check_budget(prompt, len(payload["items"]))
     out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
@@ -304,7 +319,7 @@ def op_organize(payload, opts):
             return validate.organize_from_two_calls(labels, assign, payload), len(p1) + len(p2), "two-call"
     except validate.ValidationError as e:
         raise Fail("BAD_MODEL_OUTPUT", str(e), retryable=True)
-    raise Fail("SCHEMA_MISSING", os.path.join(SCHEMAS, "organize.json"))
+    raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'organize.json')}")
 
 
 def handle(req):
@@ -508,7 +523,7 @@ def manifest_problems(path, host_path):
         problems.append(f"path is {m.get('path')!r}")
     elif not os.access(host_path, os.X_OK):
         problems.append(f"host {host_path} is missing or not executable")
-    if m.get("allowed_origins") != [ALLOWED_ORIGIN]:
+    if m.get("allowed_origins") != allowed_origins():
         problems.append(f"allowed_origins is {m.get('allowed_origins')}")
     return problems
 
@@ -569,11 +584,15 @@ def unregister():
 
 def manifest_for(path):
     return {"name": HOST_NAME, "description": "Diagonal: names tab groups with Apple's on-device model",
-            "path": os.path.abspath(path), "type": "stdio", "allowed_origins": [ALLOWED_ORIGIN]}
+            "path": os.path.abspath(path), "type": "stdio", "allowed_origins": allowed_origins()}
+
+
+def allowed_origins():
+    return [o for o in (ALLOWED_ORIGIN, STORE_ORIGIN) if o]
 
 
 def origin_ok(arg):
-    return isinstance(arg, str) and arg.rstrip("/") + "/" == ALLOWED_ORIGIN
+    return isinstance(arg, str) and arg.rstrip("/") + "/" in allowed_origins()
 
 
 def main(argv=None):

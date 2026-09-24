@@ -6,3 +6,5 @@ diagonal-extension.zip
 host/tests/__pycache__/
 host/__pycache__/
 __pycache__/
+dist-store/
+diagonal-store.zip

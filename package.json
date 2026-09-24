@@ -12,7 +12,8 @@
     "test:host": "cd host && python3 -m unittest discover -s tests -v",
     "gen-emoji": "node scripts/gen-emoji.mjs",
     "zip": "node scripts/build.mjs && cd dist && zip -qr ../diagonal-extension.zip .",
-    "smoke": "node scripts/build.mjs && node test/e2e/smoke.mjs",
+    "zip:store": "node scripts/build.mjs --store && cd dist-store && zip -qr ../diagonal-store.zip .",
+    "smoke": "node scripts/build.mjs && node test/e2e/smoke.mjs && node test/e2e/selfupdate.mjs",
     "icons": "python3 scripts/render-icons.py",
     "check": "tsc --noEmit && vitest run && cd host && python3 -m unittest discover -s tests"
   },

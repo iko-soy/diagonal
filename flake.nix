@@ -1,5 +1,5 @@
 {
-  description = "Diagonal: Dia-style tab groups for Brave, named by Apple's on-device model";
+  description = "Diagonal: Dia-style tab groups for Chromium browsers, named by Apple's on-device model";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -58,7 +58,8 @@
             description = "Diagonal: names tab groups with Apple's on-device model";
             path = "${host}/bin/diagonal-host";
             type = "stdio";
-            allowed_origins = [ "chrome-extension://${cfg.extensionId}/" ];
+            allowed_origins = map (id: "chrome-extension://${id}/")
+              ([ cfg.extensionId ] ++ lib.optional (cfg.storeExtensionId != "") cfg.storeExtensionId);
           };
         in
         {
@@ -69,9 +70,14 @@
               default = extensionId;
               description = "Pinned extension ID (from scripts/gen-key.sh). The host itself checks the ID baked into host/diagonal-host.py, so change both together by re-running gen-key.sh.";
             };
+            storeExtensionId = lib.mkOption {
+              type = lib.types.str;
+              default = "";
+              description = "The Chrome Web Store listing's extension ID, if you installed Diagonal from the store. Must match STORE_ORIGIN in host/diagonal-host.py.";
+            };
             browsers = lib.mkOption {
               type = lib.types.listOf lib.types.str;
-              default = [ "BraveSoftware/Brave-Browser" ];
+              default = [ "BraveSoftware/Brave-Browser" "BraveSoftware/Brave-Origin" "Google/Chrome" ];
               example = [ "BraveSoftware/Brave-Origin" "Google/Chrome" "Microsoft Edge" "Arc/User Data" ];
               description = "Browser profile folders under ~/Library/Application Support to install the host manifest into.";
             };

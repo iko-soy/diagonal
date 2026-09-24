@@ -86,6 +86,7 @@ export interface PingResult {
   fmMessage: string;
   licenseRequired?: boolean;
   schemasOk: boolean;
+  schemaMessage?: string;
   organizeMode?: string;
 }
 

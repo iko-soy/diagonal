@@ -39,9 +39,9 @@ Then load the extension once, in each browser you use:
 1. Open `chrome://extensions` (it works in Brave, Edge and the rest too) and turn on **Developer mode**.
 2. Click **Load unpacked**, press **Cmd+Shift+G** and paste `~/Library/Application Support/Diagonal/extension`.
 
-To update: `brew upgrade --cask --greedy diagonal`, then click reload on Diagonal at `chrome://extensions`. `brew uninstall diagonal` removes the extension folder, the host and its manifests from every browser; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
+Updates come with a plain `brew upgrade`: the tap's cask moves to each new release within half an hour (`.github/workflows/diagonal.yml` in iko-soy/homebrew-tap). Diagonal then notices the newer files on disk and reloads itself within a couple of minutes, or as soon as you open its popup, so there is nothing to click. `brew uninstall diagonal` removes the extension folder, the host and its manifests from every browser; `brew uninstall --zap diagonal` also removes the fm schemas and logs.
 
-Chromium browsers only install extensions on their own from a web store, so the one Load unpacked step stays until Diagonal is published there.
+Chromium browsers only install extensions on their own from a web store, so the one Load unpacked step stays until Diagonal is published there. Everything the Chrome Web Store asks for is ready in [docs/store/listing.md](docs/store/listing.md), with the policy in [PRIVACY.md](PRIVACY.md); a store install still needs the Homebrew helper above.
 
 ### From a release zip
 
@@ -103,7 +103,8 @@ npm run watch          # rebuild on change
 npm run typecheck
 npm test               # vitest: engine, naming, organize, tidy, url, property tests
 npm run test:host      # unittest: framing, origin, every error code, prompts, validators
-npm run smoke          # Linux: loads dist/ in Chromium with the real host and a fake fm
+npm run smoke          # Linux: loads dist/ in Chromium with the real host and a fake fm, then checks self-update
+npm run zip:store      # diagonal-store.zip for the Chrome Web Store (no pinned key, no bundled host)
 npm run check          # typecheck + both unit suites
 ```
 
@@ -138,4 +139,4 @@ Everything was tested against a fake `fm`. These are open until someone runs it 
 - `fm` stderr wording. `classify()` matches keywords, so an unexpected message shows as `FM_ERROR` with the raw text on the settings page.
 - Whether `fm respond` can read the prompt from stdin. Until then, the prompt is an argument and is briefly visible in `ps`.
 - The context window. `CHAR_BUDGET` is 10,000 characters, assuming 4,096 tokens. Double it (and `NAME_ITEM_CAP` / `ORGANIZE_ITEM_CAP`) once 8,192 is confirmed.
-- The Nix flake has not been built. `importNpmLock` avoids an `npmDepsHash`.
+- The Nix flake builds both packages on x86_64-linux, and `.github/workflows/nix.yml` builds them on Linux and Apple silicon on every push. The home-manager module has not been activated on a real Mac.

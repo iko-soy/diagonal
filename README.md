@@ -54,7 +54,7 @@ Chromium browsers only install extensions on their own from a web store, so the 
    ```
 
    (Type `bash `, then drag `install-host.command` from the folder into the Terminal window.) If it says python3 is not set up, run `xcode-select --install` and try again. It shows Apple's terms for `fm` if they haven't been accepted on this Mac yet, and ends with "Diagonal's host is ready." when everything works.
-4. Open Diagonal's settings and click **Run self-test**. The browser does not need a restart.
+4. Open Diagonal's settings and click **Run check** under "Connection to the model". The browser does not need a restart.
 
 The zip carries the host (`host/`), `extension-id` and `install-host.command`, which is the same script as `scripts/install-manifest.sh`. When you update to a newer release, rerun step 3.
 
@@ -92,7 +92,7 @@ programs.diagonal.enable = true;
 
 #### 3. Check it
 
-Open Diagonal's settings page and click **Run self-test**. Expect `fmAvailable: true`, `schemasOk: true` and a title for the three fixture tabs. From a terminal, `diagonal-host --selftest` runs the same checks.
+Open Diagonal's settings page and click **Run check**. It should say "Working" and show a title for a sample group; the full result (`fmAvailable: true`, `schemasOk: true`) is under Troubleshooting. From a terminal, `diagonal-host --selftest` runs the same checks.
 
 ## Develop
 

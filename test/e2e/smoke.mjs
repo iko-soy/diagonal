@@ -191,7 +191,7 @@ try {
   await popup.reload();
   await sleep(800);
   const statusText = await popup.textContent("#status-text");
-  check("popup shows the host as healthy", statusText === "Host ok" || statusText === "Naming…", statusText);
+  check("popup shows the host as healthy", statusText === "Ready" || statusText === "Naming…", statusText);
   await popup.screenshot({ path: join(shotDir, "popup.png") });
 
   const options = await context.newPage();

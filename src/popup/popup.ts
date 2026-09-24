@@ -1,16 +1,13 @@
+import { notices, renderNotice, renderPill, type Health } from "../shared/health";
 import { ago, el, send } from "../shared/messaging";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 let windowId: number | undefined;
+let resultText = "";
+const open = new Set<number>(); // groups whose actions are expanded, kept across refreshes
 
-interface Status {
-  health: "ok" | "unknown" | "degraded";
-  groupsSupported: boolean;
-  message: string;
-  lastError?: { code: string; message: string };
+interface Status extends Health {
   lastPing?: { fmAvailable: boolean; schemasOk: boolean };
-  timeoutHint: boolean;
-  inFlight: boolean;
   tidyMode: string;
   tidyThreshold: number;
   tidyCandidates: number;
@@ -18,100 +15,95 @@ interface Status {
   canUndoSweep: boolean;
   canUndoOrganize: boolean;
   archive: { url: string; title: string; favIconUrl?: string; groupTitle?: string; archivedAt: number }[];
-  groups: { id: number; title: string; origin: string; managed: boolean; userNamed: boolean; keep: boolean; dirty: boolean; size: number }[];
+  groups: { id: number; title: string; color?: string; origin: string; managed: boolean; userNamed: boolean; keep: boolean; dirty: boolean; size: number }[];
   extensionId: string;
   manifestPath: string;
 }
 
-function renderStatus(s: Status): void {
-  const dot = $("status-dot");
-  const text = $("status-text");
-  dot.className = "dot";
-  if (s.health === "degraded") {
-    dot.classList.add("bad");
-    const code = s.lastError?.code;
-    text.textContent =
-      code === "HOST_NOT_FOUND" ? "Host not installed" :
-      code === "MODEL_UNAVAILABLE" ? "Model unavailable" :
-      code === "LICENSE_REQUIRED" ? "Run sudo fm license" :
-      code === "HOST_FORBIDDEN" || code === "FORBIDDEN_ORIGIN" ? "Host refuses this ID" :
-      code === "SCHEMA_MISSING" ? "Schemas missing" : "Host unavailable";
-  } else if (s.health === "ok") {
-    dot.classList.add("ok");
-    text.textContent = s.inFlight ? "Naming…" : "Host ok";
-  } else {
-    dot.classList.add("warn");
-    text.textContent = "Not checked yet";
-  }
-  const notice = $("notice");
-  notice.replaceChildren();
-  const lines: (string | Node)[] = [];
-  if (!s.groupsSupported) lines.push("This browser doesn't let extensions manage tab groups, so Diagonal can't group tabs here.");
-  if (s.message) lines.push(s.message);
-  if (s.timeoutHint) lines.push("Three timeouts in a row: consider raising the timeout in Settings.");
-  if (s.lastError?.code === "HOST_NOT_FOUND") {
-    lines.push(el("div", {}, el("button", { className: "link", textContent: "Copy manifest path", onclick: () => navigator.clipboard.writeText(s.manifestPath) })));
-  }
-  if (s.lastError?.code === "MODEL_UNAVAILABLE") {
-    lines.push(el("div", {}, el("button", {
-      className: "link",
-      textContent: "Open Apple Intelligence settings",
-      onclick: () => chrome.tabs.create({ url: "x-apple.systempreferences:com.apple.Siri-Settings.extension" }),
-    })));
-  }
-  notice.hidden = lines.length === 0;
-  notice.className = s.health === "degraded" ? "notice bad" : "notice";
-  for (const l of lines) notice.append(typeof l === "string" ? el("div", { textContent: l }) : l);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-  const park = $<HTMLButtonElement>("park");
-  park.hidden = !(s.tidyMode === "ask" && s.tidyCandidates >= s.tidyThreshold);
-  park.textContent = `Park ${s.tidyCandidates} tabs`;
+function renderStatus(s: Status): void {
+  renderPill($("status"), s);
+
+  const list = notices(s);
+  const box = $("notices");
+  box.replaceChildren(...list.map(renderNotice));
+  box.hidden = list.length === 0;
+
+  const tabs = s.groups.reduce((n, g) => n + g.size, 0);
+  const naming = s.groups.filter((g) => g.dirty && !g.userNamed).length;
+  $("summary-title").textContent = s.groups.length ? `${plural(s.groups.length, "group")} · ${plural(tabs, "tab")}` : "Nothing to group yet";
+  $("summary-sub").textContent = [
+    s.groups.length ? "" : "Related tabs gather into named groups as you browse.",
+    naming ? `Naming ${plural(naming, "group")}…` : "",
+    s.parkedCount ? `${plural(s.parkedCount, "tab")} parked` : "",
+  ].filter(Boolean).join(" · ") || "Everything is in place.";
+
+  const ask = s.tidyMode === "ask" && s.tidyCandidates >= s.tidyThreshold;
+  $("park-card").hidden = !ask;
+  $("park-text").textContent = `${plural(s.tidyCandidates, "tab")} you haven't used in a while.`;
+  $("park").textContent = "Park them";
+
   $("undo-sweep").hidden = !s.canUndoSweep;
   $("undo-organize").hidden = !s.canUndoOrganize;
-  $("parked").textContent = s.parkedCount ? `${s.parkedCount} tab${s.parkedCount === 1 ? "" : "s"} parked in this window` : "";
+  const both = s.canUndoSweep && s.canUndoOrganize;
+  $("undo-organize").textContent = both ? "Undo organize" : "Undo";
+  $("undo-sweep").textContent = both ? "Undo tidy" : "Undo";
+  const fallback = s.canUndoOrganize ? "Organized a moment ago." : s.canUndoSweep ? "Tidied a moment ago." : "";
+  $("result").textContent = resultText || fallback;
+  $("result-card").hidden = !(resultText || fallback);
 
   const groups = $("groups");
   groups.replaceChildren();
-  if (!s.groups.length) groups.append(el("li", { className: "muted", textContent: "No groups yet. Cmd-click a link to start one." }));
+  if (!s.groups.length) groups.append(el("li", { className: "empty", textContent: "Open a few tabs on one topic and they'll gather here." }));
   for (const g of s.groups) {
     const act = (label: string, title: string, cmd: string, extra: Record<string, unknown> = {}) =>
-      el("button", { textContent: label, title, onclick: () => run(cmd, { groupId: g.id, ...extra }) });
-    const tags = [g.origin === "user" ? "yours" : g.origin, g.userNamed ? "fixed name" : g.dirty ? "renaming" : "", g.keep ? "kept" : ""].filter(Boolean).join(" · ");
-    groups.append(
-      el("li", {},
-        el("div", { className: "row" },
-          el("span", { className: "grow ellipsis", textContent: g.title || "(untitled)" }),
-          el("span", { className: "muted count", textContent: String(g.size) })),
-        el("div", { className: "row group-actions" },
-          el("span", { className: "grow muted", textContent: tags }),
-          act("Name now", "Name this group now", "groupNameNow"),
-          act(g.keep ? "Unkeep" : "Keep", "Exclude from tidy", "groupKeep", { keep: !g.keep }),
-          ...(g.userNamed ? [] : [act("Don't name", "Stop naming this group", "groupDontName")]),
+      el("button", { className: "small", textContent: label, title, onclick: () => run(cmd, { groupId: g.id, ...extra }) });
+    const tags = [
+      g.origin === "user" ? "Your group" : "Made by Diagonal",
+      g.userNamed ? "your title" : g.dirty ? "naming…" : "",
+      g.keep ? "never tidied" : "",
+    ].filter(Boolean).join(" · ");
+    const d = el("details", { className: "group", open: open.has(g.id) },
+      el("summary", {},
+        el("span", { className: `swatch ${g.color ?? "grey"}` }),
+        el("span", { className: "grow ellipsis", textContent: g.title || "Untitled group" }),
+        el("span", { className: "count num", textContent: String(g.size) }),
+        el("span", { className: "chev" })),
+      el("div", { className: "more" },
+        el("div", { className: "tag", textContent: tags }),
+        el("div", { className: "acts" },
+          ...(g.userNamed ? [] : [act("Rename now", "Ask the model for a new name now", "groupNameNow")]),
+          act(g.keep ? "Allow tidying" : "Never tidy", "Keep these tabs out of tidy sweeps", "groupKeep", { keep: !g.keep }),
+          ...(g.userNamed ? [] : [act("Stop naming", "Leave this group's title alone", "groupDontName")]),
           act("Ungroup", "Ungroup these tabs", "groupUngroup"))));
+    d.addEventListener("toggle", () => (d.open ? open.add(g.id) : open.delete(g.id)));
+    groups.append(el("li", {}, d));
   }
 
   const archive = $("archive");
   archive.replaceChildren();
-  $("restore-all").hidden = s.archive.length === 0;
-  if (!s.archive.length) archive.append(el("li", { className: "muted", textContent: "Nothing archived." }));
+  $("archive-card").hidden = s.archive.length === 0;
   for (const a of s.archive) {
     const icon = a.favIconUrl && /^(https?|data):/.test(a.favIconUrl) ? el("img", { className: "fav", src: a.favIconUrl, alt: "" }) : el("span", { className: "fav" });
     archive.append(
-      el("li", { className: "row" },
+      el("li", { className: "arch" },
         icon,
         el("div", { className: "grow" },
-          el("div", { className: "ellipsis", textContent: a.title, title: a.url }),
-          el("div", { className: "muted ellipsis", textContent: [a.groupTitle, ago(a.archivedAt)].filter(Boolean).join(" · ") })),
-        el("button", { className: "link", textContent: "Restore", onclick: () => run("restore", { archivedAt: a.archivedAt, url: a.url }) }),
-        el("button", { className: "link", textContent: "Forget", onclick: () => run("forget", { archivedAt: a.archivedAt, url: a.url }) })));
+          el("div", { className: "ellipsis", textContent: a.title || a.url, title: a.url }),
+          el("div", { className: "sub ellipsis", textContent: [a.groupTitle, ago(a.archivedAt)].filter(Boolean).join(" · ") })),
+        el("div", { className: "acts" },
+          el("button", { className: "link small", textContent: "Restore", onclick: () => run("restore", { archivedAt: a.archivedAt, url: a.url }) }),
+          el("button", { className: "quiet forget", textContent: "×", title: "Forget this tab", ariaLabel: "Forget", onclick: () => run("forget", { archivedAt: a.archivedAt, url: a.url }) }))));
   }
 }
 
 async function refresh(): Promise<void> {
   try {
     renderStatus(await send<Status>("status", { windowId }));
-  } catch (e) {
-    $("status-text").textContent = "Worker not responding";
+  } catch {
+    renderPill($("status"), { health: "degraded", groupsSupported: true, message: "", timeoutHint: false, inFlight: false });
+    $("status-text").textContent = "Not responding";
   }
 }
 
@@ -126,9 +118,9 @@ async function run(cmd: string, extra: Record<string, unknown> = {}): Promise<un
 }
 
 function showResult(text: string): void {
-  const r = $("result");
-  r.textContent = text;
-  r.hidden = !text;
+  resultText = text;
+  $("result").textContent = text;
+  $("result-card").hidden = !text;
 }
 
 async function main(): Promise<void> {
@@ -140,16 +132,32 @@ async function main(): Promise<void> {
     const r = (await run("organize")) as { grouped: number; groups: number; left: number; error?: string } | undefined;
     b.disabled = false;
     b.textContent = "Organize now";
-    if (r) showResult(`${r.grouped} tabs grouped into ${r.groups} new group${r.groups === 1 ? "" : "s"}, ${r.left} left${r.error ? ` (stopped: ${r.error})` : ""}.`);
+    if (r) {
+      showResult(r.grouped
+        ? `Grouped ${plural(r.grouped, "tab")} into ${plural(r.groups, "new group")}.${r.error ? ` Stopped early: ${r.error}` : ""}`
+        : r.error ? `Couldn't organize: ${r.error}` : "Nothing new to group.");
+      await refresh();
+    }
   };
   const tidy = async () => {
     const r = (await run("tidyNow")) as { parked: number; archived: number } | undefined;
-    if (r) showResult(`Parked ${r.parked}, archived ${r.archived}.`);
+    if (r) {
+      showResult(r.parked || r.archived
+        ? [r.parked ? `Parked ${plural(r.parked, "tab")}` : "", r.archived ? `archived ${plural(r.archived, "tab")}` : ""].filter(Boolean).join(", ") + "."
+        : "Nothing needed tidying.");
+      await refresh();
+    }
   };
   $("tidy").onclick = tidy;
   $("park").onclick = tidy;
-  $("undo-sweep").onclick = async () => showResult(`Restored ${await run("undoSweep")} tabs.`);
-  $("undo-organize").onclick = async () => showResult(`Restored ${await run("undoOrganize")} tabs.`);
+  $("undo-sweep").onclick = async () => {
+    const n = (await run("undoSweep")) as number | undefined;
+    showResult(`Put back ${plural(n ?? 0, "tab")}.`);
+  };
+  $("undo-organize").onclick = async () => {
+    const n = (await run("undoOrganize")) as number | undefined;
+    showResult(`Put back ${plural(n ?? 0, "tab")}.`);
+  };
   $("restore-all").onclick = () => run("restoreAll");
   $("options").onclick = () => chrome.runtime.openOptionsPage();
   await refresh();

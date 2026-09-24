@@ -635,6 +635,7 @@ async function statusFor(windowId: number | undefined): Promise<unknown> {
         .map(async (g) => ({
           id: g.id,
           title: g.stripTitle || g.title || "",
+          color: g.color,
           origin: g.origin,
           managed: g.managed,
           userNamed: g.userNamed,

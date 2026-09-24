@@ -5,40 +5,81 @@
   <title>Diagonal</title>
   <link rel="stylesheet" href="ui.css">
   <style>
-    body { width: 360px; padding: 12px 14px 14px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-    .group-actions button { padding: 2px 6px; font-size: 12px; }
-    #archive { max-height: 220px; overflow-y: auto; }
-    #groups { max-height: 200px; overflow-y: auto; }
-    .count { font-variant-numeric: tabular-nums; }
+    body { width: 340px; background: var(--bg); }
+    header { display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px; }
+    main { padding: 0 10px 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .summary { padding: 12px 14px; display: grid; gap: 2px; }
+    .summary .big { font-size: 14px; font-weight: 600; }
+    .section { padding: 4px 0; }
+    .section > .head { display: flex; align-items: center; padding: 8px 14px 4px; }
+    .list { list-style: none; margin: 0; padding: 0 4px; }
+    .scroll { max-height: 232px; overflow-y: auto; }
+
+    details.group > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+    details.group > summary::-webkit-details-marker { display: none; }
+    details.group > summary:hover, details.group[open] > summary { background: var(--surface-2); }
+    details.group .count { color: var(--faint); font-size: 12px; }
+    details.group .more { padding: 4px 10px 10px 30px; display: grid; gap: 6px; }
+    details.group .acts { display: flex; flex-wrap: wrap; gap: 4px; }
+    .tag { font-size: 11px; color: var(--muted); }
+
+    .arch { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 8px; }
+    .arch:hover { background: var(--surface-2); }
+    .arch .acts { display: flex; align-items: center; gap: 0; }
+    .arch .forget { color: var(--faint); font-size: 15px; line-height: 1; padding: 2px 6px; }
+    .arch .sub { font-size: 11px; color: var(--faint); }
+    .empty { padding: 6px 14px 10px; color: var(--muted); }
+
+    .result { padding: 9px 12px; background: var(--accent-soft); border-radius: var(--radius); display: flex; align-items: center; gap: 8px; }
+    .result .grow { color: var(--text); }
+    .park { padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
+
+    footer { display: flex; align-items: center; gap: 4px; padding: 8px 10px 12px; border-top: 1px solid var(--border); }
   </style>
 </head>
 <body>
-  <div class="row">
+  <header>
+    <img class="logo" src="icons/48.png" width="26" height="26" alt="">
     <h1 class="grow">Diagonal</h1>
-    <span class="pill" id="status"><span class="dot" id="status-dot"></span><span id="status-text">Checking…</span></span>
-  </div>
-  <div id="notice" class="notice" hidden></div>
+    <span class="pill warn busy" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></span>
+  </header>
 
-  <div class="actions">
-    <button id="organize">Organize now</button>
-    <button id="tidy">Tidy now</button>
-    <button id="park" hidden></button>
-  </div>
-  <div class="actions">
-    <button class="link" id="undo-organize" hidden>Undo organize</button>
-    <button class="link" id="undo-sweep" hidden>Undo last sweep</button>
-  </div>
-  <p id="result" class="muted" hidden></p>
-  <p id="parked" class="muted"></p>
+  <main>
+    <div id="notices" class="notices" style="display:grid;gap:8px" hidden></div>
 
-  <h2>Groups in this window</h2>
-  <ul class="list" id="groups"></ul>
+    <div class="card summary">
+      <div class="big" id="summary-title">Keeping this window tidy</div>
+      <div class="muted" id="summary-sub">Related tabs gather into named groups as you browse.</div>
+    </div>
 
-  <div class="row"><h2 class="grow">Archive</h2><button class="link" id="restore-all" hidden>Restore all</button></div>
-  <ul class="list" id="archive"></ul>
+    <div class="card park" id="park-card" hidden>
+      <div class="grow" id="park-text"></div>
+      <button class="primary small" id="park"></button>
+    </div>
 
-  <div class="row" style="margin-top:12px"><span class="grow"></span><button class="link" id="options">Settings</button></div>
+    <div class="result" id="result-card" hidden>
+      <span class="grow" id="result"></span>
+      <button class="link" id="undo-organize" hidden>Undo</button>
+      <button class="link" id="undo-sweep" hidden>Undo</button>
+    </div>
+
+    <div class="card section">
+      <div class="head"><h2 class="grow">Groups in this window</h2></div>
+      <ul class="list scroll" id="groups"></ul>
+    </div>
+
+    <div class="card section" id="archive-card" hidden>
+      <div class="head"><h2 class="grow">Recently archived</h2><button class="link small" id="restore-all">Restore all</button></div>
+      <ul class="list scroll" id="archive"></ul>
+    </div>
+  </main>
+
+  <footer>
+    <button class="quiet small" id="organize" title="Group loose tabs now instead of waiting">Organize now</button>
+    <button class="quiet small" id="tidy" title="Park tabs you haven't used in a while">Tidy now</button>
+    <span class="grow"></span>
+    <button class="quiet small" id="options">Settings</button>
+  </footer>
   <script src="popup.js" type="module"></script>
 </body>
 </html>

@@ -5,44 +5,80 @@
   <title>Diagonal settings</title>
   <link rel="stylesheet" href="ui.css">
   <style>
-    body { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
-    h1 { font-size: 20px; }
-    section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px 16px 12px; margin-top: 16px; }
-    .field { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
-    .field:last-child { border-bottom: 0; }
-    .field .help { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
-    input[type=number], select { font: inherit; width: auto; min-width: 90px; padding: 3px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
-    textarea { font: 12px ui-monospace, Menlo, monospace; width: 100%; min-height: 70px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 6px; }
-    pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-    .warn-text { color: var(--warn); }
-    #saved { transition: opacity .3s; }
+    body { font-size: 13.5px; }
+    .page { max-width: 680px; margin: 0 auto; padding: 40px 20px 64px; display: grid; gap: 16px; }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    header h1 { font-size: 22px; }
+    header p { color: var(--muted); margin-top: 2px; }
+
+    .card > .head { padding: 16px 18px 4px; }
+    .card > .head p { color: var(--muted); margin-top: 4px; }
+    .field { display: grid; grid-template-columns: 1fr auto; gap: 2px 24px; align-items: center; padding: 12px 18px; border-top: 1px solid var(--border); }
+    .card > .head + .field { border-top: 0; }
+    .field label, .field .label { font-weight: 500; }
+    .field .help { grid-column: 1; color: var(--muted); font-size: 12.5px; }
+    .field .wide { grid-column: 1 / -1; margin-top: 6px; }
+    .field.off label, .field.off .help { opacity: .5; }
+    .field .warn-text { grid-column: 1 / -1; color: var(--warn); font-size: 12.5px; margin-top: 4px; }
+
+    .unit { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); overflow: hidden; }
+    .unit input { width: 64px; border: 0; background: none; color: var(--text); font: inherit; padding: 5px 4px 5px 10px; text-align: right; }
+    .unit input:focus { outline: none; }
+    .unit:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .unit span { color: var(--muted); padding: 0 10px 0 4px; font-size: 12.5px; }
+    select, textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+    select { padding: 5px 8px; }
+    select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    textarea { width: 100%; min-height: 116px; padding: 8px 10px; font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace; resize: vertical; }
+    input:disabled, select:disabled, textarea:disabled { opacity: .5; }
+
+    .conn { display: flex; align-items: center; gap: 14px; padding: 16px 18px; }
+    .conn .title { font-weight: 600; }
+
+    details.card > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: flex; align-items: center; gap: 8px; }
+    details.card > summary::-webkit-details-marker { display: none; }
+    pre { margin: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+    .foot { text-align: center; color: var(--faint); font-size: 12px; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <div class="row"><h1 class="grow">Diagonal settings</h1><span id="saved" class="muted" style="opacity:0">Saved</span></div>
-  <p class="muted">Tab groups named by Apple's on-device model through the <code>fm</code> command-line tool. Nothing is sent over the network.</p>
+  <div class="page">
+    <header>
+      <img class="logo" src="icons/128.png" width="48" height="48" alt="">
+      <div class="grow">
+        <h1>Diagonal</h1>
+        <p>Groups your tabs as you browse and names them with Apple's on-device model.</p>
+      </div>
+      <span class="pill warn busy" id="status"><span class="dot"></span><span id="status-text">Connecting…</span></span>
+    </header>
 
-  <section>
-    <h2>Host setup and self-test</h2>
-    <div class="field"><span>Extension ID</span><code id="ext-id"></code></div>
-    <div class="field"><span>Host manifest path</span><button class="link" id="copy-path">Copy</button><code class="help" id="manifest-path"></code></div>
-    <div class="field"><span>Host manifest contents</span><button class="link" id="copy-manifest">Copy</button><pre class="help" id="manifest-json"></pre></div>
-    <div class="field"><span>Self-test: ping the host, then name three fixture tabs</span><button class="primary" id="selftest">Run self-test</button><pre class="help" id="selftest-out" hidden></pre></div>
-    <div class="field"><span>Naming latency (last 100 calls)</span><span id="latency" class="mono muted">no data yet</span></div>
-    <div class="field"><span>Last host error</span><span></span><pre class="help" id="last-error">none</pre></div>
-  </section>
+    <div id="notices" style="display:grid;gap:8px" hidden></div>
 
-  <section id="settings"></section>
+    <div class="card conn">
+      <div class="grow">
+        <div class="title">Connection to the model</div>
+        <div class="muted" id="selftest-summary">Check that the helper answers and can name a sample group.</div>
+      </div>
+      <button id="selftest">Run check</button>
+    </div>
 
-  <section>
-    <h2>Archive</h2>
-    <div class="field"><span>Export every archived tab as JSON</span><button id="export">Export archive</button></div>
-  </section>
+    <div id="settings" style="display:grid;gap:16px"></div>
 
-  <section id="debug-section" hidden>
-    <h2>Debug log</h2>
-    <pre id="debug-log"></pre>
-  </section>
+    <details class="card" id="troubleshooting">
+      <summary><span class="chev"></span><h2 class="grow">Troubleshooting</h2></summary>
+      <div class="field"><span class="label">Extension ID</span><code id="ext-id"></code></div>
+      <div class="field"><span class="label">Naming speed</span><span id="latency" class="mono muted">No calls yet</span><span class="help">Median and slowest 5% of the last 100 model calls.</span></div>
+      <div class="field"><span class="label">Host manifest path</span><button class="link small" id="copy-path">Copy</button><code class="wide muted" id="manifest-path"></code></div>
+      <div class="field"><span class="label">Host manifest</span><button class="link small" id="copy-manifest">Copy</button><pre class="wide" id="manifest-json"></pre></div>
+      <div class="field"><span class="label">Last check, in full</span><span></span><pre class="wide" id="selftest-out">Not run yet</pre></div>
+      <div class="field"><span class="label">Last host error</span><span></span><pre class="wide" id="last-error">None</pre></div>
+      <div id="debug-fields"></div>
+      <div class="field" id="debug-section" hidden><span class="label">Debug log</span><span></span><pre class="wide" id="debug-log"></pre></div>
+    </details>
+
+    <p class="foot">Changes save as you make them.</p>
+  </div>
+  <div class="toast" id="saved" role="status">Saved</div>
   <script src="options.js" type="module"></script>
 </body>
 </html>

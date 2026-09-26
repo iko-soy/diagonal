@@ -46,7 +46,9 @@ export function notices(s: Health): Notice[] {
       case "HOST_NOT_FOUND":
         out.push({
           tone: "bad", title: "Finish setting up Diagonal",
-          body: "Diagonal's helper isn't registered with this browser yet. Run this in Terminal, then reopen Diagonal.",
+          body: chrome.runtime.getManifest().update_url
+            ? "Diagonal's helper isn't registered with this browser yet. Run this in Terminal, then reopen Diagonal."
+            : "Diagonal's helper isn't registered with this browser yet. Installed with Homebrew? Run this in Terminal, then reopen Diagonal. Installed from a zip? Run: bash <the Diagonal folder>/install-host.command",
           // A Web Store install has an update_url and may never have had the cask; an unpacked one came from it.
           command: chrome.runtime.getManifest().update_url ? "brew install iko-soy/tap/diagonal" : "brew reinstall diagonal",
         });

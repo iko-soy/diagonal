@@ -35,8 +35,23 @@ jobs:
 
       - name: Version from commit time
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y.%m.%d.%H%M "$GITHUB_SHA")
+          # The commit's minute, or the next free minute when another commit already released in it. A re-run
+          # for a commit that already released publishes nothing: a rebuilt zip has new bytes, which would
+          # break the sha256 the tap already has, and users on that version would never get the new one.
+          t=$(git log -1 --format=%ct "$GITHUB_SHA")
+          for _ in $(seq 1 30); do
+            version=$(date -u -d "@$t" +%Y.%m.%d.%H%M)
+            target=$(gh release view "$version" --json targetCommitish -q .targetCommitish 2>/dev/null || true)
+            [ -z "$target" ] && break
+            if [ "$target" = "$GITHUB_SHA" ]; then
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            t=$((t + 60))
+          done
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version $version"
 
@@ -57,22 +72,19 @@ jobs:
           npm run zip:store
 
       - name: Publish release
+        if: steps.version.outputs.published != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           asset="diagonal-extension-${VERSION}.zip"
           notes="Built from ${GITHUB_SHA::7}. Install with: brew install iko-soy/tap/diagonal. Or by hand: unzip, load the folder at brave://extensions (Developer mode → Load unpacked), then install the native host once from Terminal: bash <that folder>/install-host.command"
-          if gh release view "$VERSION" >/dev/null 2>&1; then
-            # Two commits in the same minute share a version: refresh the asset on the existing release.
-            gh release upload "$VERSION" "$asset" diagonal-extension.zip diagonal-store.zip --clobber
-          else
-            gh release create "$VERSION" "$asset" diagonal-extension.zip diagonal-store.zip --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes" --latest
-          fi
+          gh release create "$VERSION" "$asset" diagonal-extension.zip diagonal-store.zip --target "$GITHUB_SHA" --title "Diagonal $VERSION" --notes "$notes" --latest
 
       # Uploads the release to the Chrome Web Store and submits it for review, once the listing exists and
       # its API credentials are set as repository secrets (docs/store/listing.md). Skipped until then.
       - name: Upload to the Chrome Web Store
+        if: steps.version.outputs.published != 'true'
         env:
           CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
           CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}

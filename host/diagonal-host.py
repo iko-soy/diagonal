@@ -206,7 +206,7 @@ def count_tokens(prompt):
     """fm's exact count (under 0.1 s), or None when it can't give one."""
     try:
         p = subprocess.run([FM, "count-tokens", "-q", "-i", prompt.instructions], input=prompt.text,
-                           capture_output=True, text=True, timeout=10, env=fm_env())
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, env=fm_env())
     except (OSError, subprocess.TimeoutExpired):
         return None
     out = p.stdout.strip()
@@ -285,7 +285,7 @@ def _run_fm(prompt, schema, opts, extra):
     args = [FM, "respond", "--model", opts["model"], "--no-stream", *greedy, "--schema", schema, "-i", prompt.instructions, *extra]
     timeout_s = max(1.0, time_left(opts))
     try:
-        p = subprocess.run(args, input=prompt.text, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
+        p = subprocess.run(args, input=prompt.text, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout_s, env=fm_env())
     except FileNotFoundError:
         raise Fail("MODEL_UNAVAILABLE", f"fm not found at {FM} — requires macOS 27")
     except subprocess.TimeoutExpired:
@@ -312,7 +312,7 @@ def op_ping(_payload, _opts):
                 "fmMessage": f"fm not found at {FM} — requires macOS 27", "schemasOk": False, "organizeMode": organize_mode()}
     license_required = False
     try:
-        avail = subprocess.run([FM, "available", "--model", "system"], capture_output=True, text=True, timeout=15, env=fm_env())
+        avail = subprocess.run([FM, "available", "--model", "system"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, env=fm_env())
         ok, msg = avail.returncode == 0, (avail.stdout + avail.stderr).strip()[:300]
         if not ok and license_needed(avail.returncode, avail.stdout + avail.stderr):
             license_required, msg = True, LICENSE_MESSAGE
@@ -499,7 +499,7 @@ def install_schemas():
             if "{%s}" % key not in args:
                 continue
             try:
-                p = subprocess.run([FM, *sub_args], capture_output=True, text=True, timeout=30, env=fm_env())
+                p = subprocess.run([FM, *sub_args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, env=fm_env())
             except (FileNotFoundError, subprocess.TimeoutExpired) as e:
                 print(f"  {name}: fm failed ({e})", file=sys.stderr)
                 return "error"
@@ -511,7 +511,7 @@ def install_schemas():
             subs["{%s}" % key] = p.stdout.strip()
         args = [subs.get(a, a) for a in args]
         try:
-            p = subprocess.run([FM, *args], capture_output=True, text=True, timeout=30, env=fm_env())
+            p = subprocess.run([FM, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, env=fm_env())
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             print(f"  {name}: fm failed ({e})", file=sys.stderr)
             return "error"

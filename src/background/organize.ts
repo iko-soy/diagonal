@@ -313,7 +313,7 @@ export async function organizeWindow(rt: Runtime, windowId: number): Promise<Org
     report.left = tabs.length;
     return report;
   }
-  const run = newRun(windowId, false);
+  const run = newRun(windowId, true); // auto-organize need not send the same tabs again right after
   rt.state().inFlight = { groupId: -1, startedAt: rt.now() };
   rt.refreshBadge();
   try {

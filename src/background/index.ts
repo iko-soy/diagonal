@@ -93,7 +93,11 @@ async function host<T>(op: Op, payload: object, extra: Partial<HostOpts> = {}): 
       h.lastOkAt = Date.now();
       h.consecutiveFailures = 0;
       h.consecutiveTimeouts = 0;
-      if (op !== "ping") h.rateLimitStep = 0; // a ping doesn't use the model, so it says nothing about its limit
+      if (op !== "ping") {
+        h.rateLimitStep = 0; // a ping doesn't use the model, so it says nothing about its limit
+        // A model answer (a manual Organize or Name now during a pause) proves the helper works again.
+        if (h.pausedUntil) recovered();
+      }
       if (reply.meta?.ms !== undefined) void pushRing("latency", reply.meta.ms, 100);
     } else {
       recordHostError(reply.error);
@@ -140,16 +144,22 @@ async function ping(): Promise<HostReply<PingResult>> {
     } else if (!reply.result.schemasOk) {
       recordHostError({ code: "SCHEMA_MISSING", message: reply.result.schemaMessage || "fm could not write Diagonal's schema files" });
     } else {
-      h.pausedUntil = undefined;
-      h.lastError = undefined;
-      chrome.alarms.clear(ALARM_HOST);
-      void naming.sweepDirty();
-      void autoOrganizer.sweep();
+      recovered();
     }
   }
   commit();
   refreshBadge();
   return reply;
+}
+
+/** The helper answers again: lift the pause and pick up what waited for it. */
+function recovered(): void {
+  const h = state.host;
+  h.pausedUntil = undefined;
+  h.lastError = undefined;
+  chrome.alarms.clear(ALARM_HOST);
+  void naming.sweepDirty();
+  void autoOrganizer.sweep();
 }
 
 // ----- badge -----------------------------------------------------------------------------------
@@ -502,12 +512,14 @@ if (GROUPS_SUPPORTED) {
 
   chrome.tabs.onReplaced.addListener((added, removed) =>
     void serial("tabs.onReplaced", async () => {
+      // Chromium swapped in a new tab (a prerendered page, a discarded tab coming back): it is the same
+      // tab to the user, so it keeps what Diagonal knew about it, including choices the user made.
       const rec = state.tabs[removed];
       delete state.tabs[removed];
       const t = await tabById(added);
       if (t) {
+        if (rec && !state.tabs[added]) state.tabs[added] = { ...rec, id: added };
         await feed({ type: "tabUpdated", tab: snapTab(t) });
-        if (rec?.description && state.tabs[added]) state.tabs[added].description = rec.description;
       }
     }),
   );

@@ -1,6 +1,7 @@
 import { labelOf, repairLabel, safeEmoji, sameLabel, stripTitle, titleKey, LABEL_MAX_CHARS } from "../shared/label";
 import { sha1 } from "../shared/sha1";
 import { isInternalUrl, promptUrl, trimText } from "../shared/url";
+import { pathKey } from "./engine";
 import type { HostOpts, HostReply } from "./host";
 import { SETUP_ERRORS } from "./host";
 import type { Settings } from "./settings";
@@ -113,8 +114,9 @@ export function shouldApply(g: GroupRecord, label: string, urls: string[]): bool
   if (g.userNamed) return false;
   if (!g.lastNamedAt || !g.title) return true; // first name replaces the provisional hostname
   if (sameLabel(label, g.title)) return false;
-  const before = new Set(g.memberUrls ?? []);
-  const after = new Set(urls);
+  // By page, not by exact address: a tab that moved to ?page=2 or #comments is the same member.
+  const before = new Set((g.memberUrls ?? []).map(pathKey));
+  const after = new Set(urls.map(pathKey));
   const changed = [...after].some((u) => !before.has(u)) || [...before].some((u) => !after.has(u));
   return changed; // a paraphrase with the same members keeps the old title
 }
@@ -214,17 +216,31 @@ export class Naming {
     }
     const now = this.d.now();
     if (!force) {
-      if (g.nextAttemptAt && g.nextAttemptAt > now) return;
+      // A refusal waits for the members to change, which only a look at them can tell.
+      if (g.nextAttemptAt && g.nextAttemptAt > now && !g.refusedHash) return;
       if (s.host.pausedUntil && s.host.pausedUntil > now) return;
       if (s.inFlight?.groupId === groupId && this.current !== groupId && now - s.inFlight.startedAt < settings.timeoutMs + 5000) return;
     }
     const members = (await this.d.liveMembers(groupId))?.filter(nameable);
     if (!members) return;
-    if (members.length < 2 || !members.every(settled)) return; // stay dirty; the load finishing touches it again
-    if (!force && membersHash(members) === g.membersHash) {
-      g.dirty = false;
+    if (!members.every(settled)) return; // stay dirty; the load finishing touches it again
+    if (members.length < 2) {
+      // Nothing to name from yet. A tab joining or loading a page marks the group dirty again.
+      if (g.dirty && !force) {
+        g.dirty = false;
+        this.d.commit();
+      }
+      return;
+    }
+    const hash = membersHash(members);
+    if (!force && hash === g.membersHash) {
+      settle(g);
       this.d.commit();
       return;
+    }
+    if (g.refusedHash && !force) {
+      if (hash === g.refusedHash && g.nextAttemptAt && g.nextAttemptAt > now) return;
+      clearFailures(g); // different tabs now: Apple's filter may well take them
     }
     if (this.current === groupId && !force) return; // re-queued when the in-flight reply lands
     if (!this.queue.some((q) => q.groupId === groupId)) this.queue.push({ groupId, force });
@@ -261,7 +277,7 @@ export class Naming {
     if (!members || members.length < 2 || !members.every(settled)) return;
     const hash = membersHash(members);
     if (!force && hash === g.membersHash) {
-      g.dirty = false;
+      settle(g);
       this.d.commit();
       return;
     }
@@ -298,7 +314,7 @@ export class Naming {
             retried.output = true;
             continue;
           }
-          this.fail(g, e);
+          this.fail(g, e, hash);
           return;
         }
 
@@ -309,7 +325,7 @@ export class Naming {
             retried.output = true;
             continue;
           }
-          this.fail(g, e);
+          this.fail(g, e, hash);
           return;
         }
         const emoji = safeEmoji(reply.result.emoji);
@@ -324,12 +340,15 @@ export class Naming {
           finalLabel = suffixLabel(label, siblings);
         }
         this.d.hostOk();
-        await this.apply(g, finalLabel, emoji, members, hash);
+        const written = await this.apply(g, finalLabel, emoji, members, hash);
         g = this.d.state().groups[groupId];
-        if (g) {
-          if (g.dirtySeq === seq) g.dirty = false;
-          else this.touch(groupId); // dirtied while in flight: go again with the new membership
-        }
+        if (!g) return;
+        if (!written) {
+          // The strip refused the title (a drag in progress, the window closing): try again shortly.
+          g.nextAttemptAt = this.d.now() + BACKOFF_MS[0];
+          this.d.scheduleFallback(g.nextAttemptAt);
+        } else if (g.dirtySeq === seq) g.dirty = false;
+        else this.touch(groupId); // dirtied while in flight: go again with the new membership
         return;
       }
     } finally {
@@ -340,16 +359,20 @@ export class Naming {
     }
   }
 
-  private async apply(g: GroupRecord, label: string, emoji: string, members: Member[], hash: string): Promise<void> {
+  /** Put the label on the strip if the policy allows; false when the strip would not take the title. */
+  private async apply(g: GroupRecord, label: string, emoji: string, members: Member[], hash: string): Promise<boolean> {
     const settings = this.d.settings();
     const urls = memberUrls(members);
-    if (g.userNamed) return; // renamed by hand while the model was thinking
+    if (g.userNamed) return true; // renamed by hand while the model was thinking
     if (shouldApply(g, label, urls)) {
       const title = stripTitle(label, emoji, settings.emoji);
       this.d.state().ownWrites[g.id] = { title, at: this.d.now() };
       this.d.commit();
       const ok = await this.d.writeTitle(g.id, title);
-      if (!ok) return;
+      if (!ok) {
+        delete this.d.state().ownWrites[g.id];
+        return false;
+      }
       g.title = label;
       g.emoji = emoji;
       g.stripTitle = title;
@@ -357,21 +380,24 @@ export class Naming {
     g.lastNamedAt = this.d.now();
     g.membersHash = hash;
     g.memberUrls = urls;
-    g.nameAttempts = 0;
-    g.firstFailureAt = undefined;
-    g.nextAttemptAt = undefined;
+    clearFailures(g);
+    return true;
   }
 
-  private fail(g: GroupRecord, e: HostError): void {
+  private fail(g: GroupRecord, e: HostError, hash: string): void {
     const now = this.d.now();
     this.d.hostFailed(e);
     if (e.code === "BAD_REQUEST") {
       g.dirty = false; // a bug on our side: log and drop
       return;
     }
+    // Setup errors pause every model call until the host is fixed, and its recovery picks this group up
+    // again: they say nothing about this group, so they don't use up its retries.
+    if (SETUP_ERRORS.has(e.code)) return;
     if (e.code === "GUARDRAIL") {
       g.nameAttempts = MAX_ATTEMPTS;
       g.nextAttemptAt = now + GIVE_UP_AFTER_MS;
+      g.refusedHash = hash;
       this.d.scheduleFallback(g.nextAttemptAt);
       return;
     }
@@ -381,10 +407,23 @@ export class Naming {
       g.dirty = false; // retried for a day: keep the provisional title
       return;
     }
-    const wait = SETUP_ERRORS.has(e.code) ? Math.max(GLOBAL_PAUSE_MS, backoffFor(g.nameAttempts)) : backoffFor(g.nameAttempts);
-    g.nextAttemptAt = now + wait;
+    g.nextAttemptAt = now + backoffFor(g.nameAttempts);
     this.d.scheduleFallback(g.nextAttemptAt);
   }
+}
+
+/** The retry bookkeeping of earlier failures, which no longer applies. */
+function clearFailures(g: GroupRecord): void {
+  g.nameAttempts = 0;
+  g.firstFailureAt = undefined;
+  g.nextAttemptAt = undefined;
+  g.refusedHash = undefined;
+}
+
+/** The members are the ones last named: nothing to do, and nothing left to retry. */
+function settle(g: GroupRecord): void {
+  g.dirty = false;
+  clearFailures(g);
 }
 
 export const eligible = (g: GroupRecord, settings: Settings): boolean =>

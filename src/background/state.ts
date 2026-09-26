@@ -47,6 +47,7 @@ export interface GroupRecord {
   nameAttempts: number;
   firstFailureAt?: number;
   nextAttemptAt?: number;
+  refusedHash?: string; // the members Apple's filter refused to name: not asked again until they change
   registeredAt?: number; // first seen as a group Diagonal did not know: it may yet turn out to be one of Diagonal's coming back
   revivedAt?: number; // came back after Chromium removed it (window move, reopen, restart)
   restored?: boolean; // "Restored": the archive brought back, not a topic other tabs should join

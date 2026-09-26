@@ -1,6 +1,6 @@
 import { stripTitle } from "../shared/label";
 import { applyEvent, bury, type Action, type EngineEvent, type GroupSnapshot, type TabSnapshot } from "./engine";
-import { callHost, chromeSender, explain, HOST_MANIFEST_PATH, SETUP_ERRORS, type HostOpts, type HostReply, type Op } from "./host";
+import { callHost, chromeSender, explain, HOST_MANIFEST_PATH, REQUEST_ERRORS, SETUP_ERRORS, type HostOpts, type HostReply, type Op } from "./host";
 import { GLOBAL_PAUSE_AFTER, GLOBAL_PAUSE_MS, Naming, RATE_LIMIT_PAUSES_MS, type Member, type NamePayload, type NameResult } from "./naming";
 import { AutoOrganizer, organizeWindow, undoOrganize, UNDO_WINDOW_MS as ORGANIZE_UNDO_MS } from "./organize";
 import { FitChecker } from "./fit";
@@ -93,7 +93,7 @@ async function host<T>(op: Op, payload: object, extra: Partial<HostOpts> = {}): 
       h.lastOkAt = Date.now();
       h.consecutiveFailures = 0;
       h.consecutiveTimeouts = 0;
-      h.rateLimitStep = 0;
+      if (op !== "ping") h.rateLimitStep = 0; // a ping doesn't use the model, so it says nothing about its limit
       if (reply.meta?.ms !== undefined) void pushRing("latency", reply.meta.ms, 100);
     } else {
       recordHostError(reply.error);
@@ -107,6 +107,8 @@ async function host<T>(op: Op, payload: object, extra: Partial<HostOpts> = {}): 
 }
 
 function recordHostError(e: HostError): void {
+  // About one request's tabs, not the host's health: the caller retries or sets those tabs aside.
+  if (REQUEST_ERRORS.has(e.code)) return;
   const h = state.host;
   const now = Date.now();
   h.lastError = { ...e, at: now };
@@ -161,7 +163,6 @@ function hostUnhealthy(): boolean {
   const h = state.host;
   const now = Date.now();
   if (h.pausedUntil && h.pausedUntil > now) return true;
-  if (h.consecutiveFailures >= 3) return true;
   return !!h.lastError && SETUP_ERRORS.has(h.lastError.code) && (!h.lastOkAt || h.lastOkAt < (h.lastError.at ?? 0));
 }
 
@@ -601,9 +602,12 @@ async function rewriteTitles(before: Settings): Promise<void> {
 async function nameGroupNow(groupId: number): Promise<void> {
   const g = state.groups[groupId];
   if (!g) return;
-  // An explicit request overrides "don't name" and a hand-typed title for this group.
+  // An explicit request overrides "don't name" and a hand-typed title for this group, and the model's
+  // answer goes on the strip even when it is close to the label it gave before.
   g.managed = true;
   g.userNamed = false;
+  g.title = undefined;
+  g.lastNamedAt = undefined;
   commit();
   await naming.nameNow(groupId);
 }

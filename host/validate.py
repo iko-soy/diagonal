@@ -7,7 +7,6 @@ from urllib.parse import urlsplit
 HERE = os.path.dirname(os.path.realpath(__file__))
 COLORS = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
 BANNED_WORDS = {"tab", "tabs", "group", "groups", "misc", "various", "stuff"}
-QUOTES = "\"'“”‘’«»`"
 TRAILING_PUNCT = re.compile(r"[\s.,;:!?…\-–—。、，！？：；]+$")
 
 
@@ -89,34 +88,73 @@ def default_emoji(items):
     return CATEGORIES[category_for_host(majority)][0]
 
 
+# Quotes go; an apostrophe between two letters ("Children's", "Rock'n'roll") is part of the word and stays.
+_QUOTE = re.compile(r"(?<![^\W\d_])['’]|['’](?![^\W\d_])|[\"“”‘«»`]")
+# A label cut short should not end mid-phrase: "Planning a trip to" reads as "Planning a trip".
+DANGLING = {"a", "an", "the", "to", "of", "for", "in", "on", "at", "by", "and", "or", "with", "from"}
+
+
 def repair_label(raw):
-    """Trim, drop quotes, banned words and trailing punctuation, cap at 4 words / 28 chars, capitalise."""
+    """Trim, drop quotes, banned words and trailing punctuation, cap at 4 words / 28 chars (16 wide characters
+    for no-space scripts), drop a dangling "to"/"of", capitalise. Kept in step with src/shared/label.ts."""
     if not isinstance(raw, str):
         return None
-    s = raw.translate({ord(q): None for q in QUOTES})
+    s = _QUOTE.sub("", raw)
     s = TRAILING_PUNCT.sub("", " ".join(s.split()))
     words = [w for w in s.split(" ") if w and re.sub(r"[^\w]", "", w.lower()) not in BANNED_WORDS]
     words = words[:4]
-    while len(words) > 2 and len(" ".join(words)) > 28:
+    if _no_space(" ".join(words)):
+        while len(words) > 1 and _width(" ".join(words)) > 16:
+            words.pop()
+        if _width(" ".join(words)) > 16:
+            words = [_cut_to_width(" ".join(words), 16)]
+    else:
+        while len(words) > 2 and len(" ".join(words)) > 28:
+            words.pop()
+    while len(words) > 1 and words[-1].lower() in DANGLING:
         words.pop()
     label = TRAILING_PUNCT.sub("", " ".join(words))
     if not label:
         return None
-    label = label[0].upper() + label[1:]
+    # "rust async" becomes "Rust async"; "iPhone tips" and "macOS updates" keep the brand's own casing.
+    if not any(c.isupper() for c in words[0][1:]):
+        label = label[0].upper() + label[1:]
     return label if is_valid_label(label) else None
 
 
-# Chinese and Japanese titles have no spaces between words, so they're checked by length instead.
+# Chinese, Japanese, Korean, Thai, Lao, Khmer and Myanmar titles don't put spaces between words, so a label
+# with any of their characters ("Python教程") is checked by width instead of word count. Each such character
+# is about as wide as two Latin letters on the tab strip.
+NO_SPACE = re.compile(r"[\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+# Chinese, Japanese and Korean, for the host's token estimate.
 CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+
+
+def _no_space(label):
+    return bool(NO_SPACE.search(label))
+
+
+def _width(label):
+    wide = len(NO_SPACE.findall(label))
+    return wide + (len(label) - wide) / 2
+
+
+def _cut_to_width(label, most):
+    out = ""
+    for ch in label:
+        if _width(out + ch) > most:
+            break
+        out += ch
+    return out.strip()
 
 
 def is_valid_label(label):
     words = label.split()
-    cjk = len(CJK.findall(label)) * 2 > len(label.replace(" ", ""))
+    wide = _no_space(label)
     return (
-        (2 <= len(label) <= 16 if cjk else 3 <= len(label) <= 28)
-        and (1 <= len(words) <= 4 if cjk else 2 <= len(words) <= 4)
-        and not any(q in label for q in QUOTES)
+        (2 <= len(label) <= 28 and _width(label) <= 16 if wide else 3 <= len(label) <= 28)
+        and (1 <= len(words) <= 4 if wide else 2 <= len(words) <= 4)
+        and not _QUOTE.search(label)
         and not TRAILING_PUNCT.search(label)
         and not any(w.lower() in BANNED_WORDS for w in words)
     )

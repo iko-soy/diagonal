@@ -50,6 +50,10 @@ describe("evolving-name policy", () => {
   it("same label is never rewritten", () => {
     expect(shouldApply(g(), "rust async runtimes", ["a", "b", "c"])).toBe(false);
   });
+  it("a member that only moved within its page is not a membership change", () => {
+    const g2 = newGroupRecord(1, 1, "opener", "blue", { title: "Rust async runtimes", lastNamedAt: 1, memberUrls: ["https://a.com/x", "https://b.com/y"] });
+    expect(shouldApply(g2, "Tokio and async-std", ["https://a.com/x?page=2", "https://b.com/y#top"])).toBe(false);
+  });
   it("user-named groups are skipped", () => {
     expect(shouldApply({ ...g(), userNamed: true }, "Anything else", ["x"])).toBe(false);
   });
@@ -151,15 +155,25 @@ describe("naming queue", () => {
     expect(state.groups[7].dirty).toBe(false);
   });
 
-  it("waits while a member is still loading or the group has one tab", async () => {
+  it("waits while a member is still loading", async () => {
     members = [member(1), member(2, { status: "loading" })];
-    naming.touch(7);
-    await settle();
-    members = [member(1)];
     naming.touch(7);
     await settle();
     expect(calls).toHaveLength(0);
     expect(state.groups[7].dirty).toBe(true);
+  });
+
+  it("a group with one tab to name from is not kept waiting; the next tab to join names it", async () => {
+    members = [member(1)];
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(0);
+    expect(state.groups[7].dirty).toBe(false);
+    members = [member(1), member(2)];
+    markDirty(state.groups[7], 0);
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(1);
   });
 
   it("names a group whose member the browser discarded to save memory", async () => {
@@ -204,6 +218,54 @@ describe("naming queue", () => {
     expect(calls[0].items[0].description).toBe("x");
     expect(calls[1].items[0].description).toBeUndefined();
     expect(state.groups[7].nextAttemptAt).toBe(now + 24 * 3_600_000);
+  });
+
+  it("a group Apple's filter refused is asked again as soon as its tabs change, not only after a day", async () => {
+    replies.push({ ok: false, error: { code: "GUARDRAIL", message: "no" } }, { ok: false, error: { code: "GUARDRAIL", message: "no" } });
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(2);
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(2); // the same tabs: still refused
+    members = [member(1), member(3)];
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(3);
+    expect(state.groups[7]).toMatchObject({ title: "Rust crate docs", dirty: false, nameAttempts: 0 });
+    expect(state.groups[7].refusedHash).toBeUndefined();
+  });
+
+  it("setup errors don't use up a group's retries; the host's recovery picks it up", async () => {
+    replies.push({ ok: false, error: { code: "LICENSE_REQUIRED", message: "terms" } });
+    naming.touch(7);
+    await settle();
+    expect(state.groups[7]).toMatchObject({ dirty: true, nameAttempts: 0 });
+    expect(state.groups[7].firstFailureAt).toBeUndefined();
+    expect(state.groups[7].nextAttemptAt).toBeUndefined();
+  });
+
+  it("a title the strip would not take is tried again shortly", async () => {
+    let refuse = true;
+    naming = new Naming({ ...(naming as any).d, writeTitle: async () => !refuse });
+    naming.touch(7);
+    await settle();
+    expect(state.groups[7]).toMatchObject({ dirty: true, nextAttemptAt: now + 30_000 });
+    expect(state.groups[7].title).toBeUndefined();
+    expect(state.ownWrites[7]).toBeUndefined();
+    refuse = false;
+    now += 30_000;
+    await naming.consider(7);
+    await settle();
+    expect(state.groups[7]).toMatchObject({ dirty: false, title: "Rust crate docs" });
+  });
+
+  it("members back as they were last named clear old failures", async () => {
+    Object.assign(state.groups[7], { membersHash: membersHash(members), nameAttempts: 3, firstFailureAt: 1, nextAttemptAt: 1 });
+    naming.touch(7);
+    await settle();
+    expect(state.groups[7]).toMatchObject({ dirty: false, nameAttempts: 0 });
+    expect(state.groups[7].firstFailureAt).toBeUndefined();
   });
 
   it("failures back off 30 s, 2 min, 10 min, then hourly; the title is left alone", async () => {

@@ -7,9 +7,12 @@ export const LABEL_MAX_CHARS = 28;
 export const LABEL_MIN_WORDS = 2;
 export const LABEL_MAX_WORDS = 4;
 
-const QUOTES = /["'“”‘’«»`]/g;
-const HAS_QUOTE = /["'“”‘’«»`]/;
+// Quotes go; an apostrophe between two letters ("Children's", "Rock'n'roll") is part of the word and stays.
+const QUOTES = /(?<!\p{L})['’]|['’](?!\p{L})|["“”‘«»`]/gu;
+const HAS_QUOTE = /(?<!\p{L})['’]|['’](?!\p{L})|["“”‘«»`]/u;
 const TRAILING_PUNCT = /[\s.,;:!?…\-–—。、，！？：；]+$/u;
+// A label cut short should not end mid-phrase: "Planning a trip to" reads as "Planning a trip".
+const DANGLING = new Set(["a", "an", "the", "to", "of", "for", "in", "on", "at", "by", "and", "or", "with", "from"]);
 
 /** Repair what is repairable; return undefined when the label cannot be made valid. */
 export function repairLabel(raw: unknown): string | undefined {
@@ -17,26 +20,49 @@ export function repairLabel(raw: unknown): string | undefined {
   let words = raw.replace(QUOTES, "").replace(/\s+/g, " ").trim().replace(TRAILING_PUNCT, "").split(" ").filter(Boolean);
   words = words.filter((w) => !BANNED_WORDS.has(w.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")));
   if (words.length > LABEL_MAX_WORDS) words = words.slice(0, LABEL_MAX_WORDS);
-  while (words.length > LABEL_MIN_WORDS && words.join(" ").length > LABEL_MAX_CHARS) words.pop();
+  if (noSpace(words.join(" "))) {
+    while (words.length > 1 && widthOf(words.join(" ")) > CJK_MAX_CHARS) words.pop();
+    if (widthOf(words.join(" ")) > CJK_MAX_CHARS) words = [cutToWidth(words.join(" "), CJK_MAX_CHARS)];
+  } else {
+    while (words.length > LABEL_MIN_WORDS && words.join(" ").length > LABEL_MAX_CHARS) words.pop();
+  }
+  while (words.length > 1 && DANGLING.has(words[words.length - 1].toLowerCase())) words.pop();
   let label = words.join(" ").replace(TRAILING_PUNCT, "");
   if (!label) return undefined;
-  label = label[0].toLocaleUpperCase() + label.slice(1);
+  // "rust async" becomes "Rust async"; "iPhone tips" and "macOS updates" keep the brand's own casing.
+  if (!/\p{Lu}/u.test(words[0].slice(1))) label = label[0].toLocaleUpperCase() + label.slice(1);
   return isValidLabel(label) ? label : undefined;
 }
 
-/** Chinese, Japanese and Korean titles have no spaces between words, so they're checked by length instead. */
-const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/g;
+/**
+ * Chinese, Japanese, Korean, Thai, Lao, Khmer and Myanmar titles don't put spaces between words, so a label
+ * with any of their characters ("Python教程") is checked by width instead of word count. Each such character
+ * is about as wide as two Latin letters on the tab strip.
+ */
+const NO_SPACE = /[\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/g;
 export const CJK_MIN_CHARS = 2;
 export const CJK_MAX_CHARS = 16;
 
-const isCjk = (label: string): boolean => (label.match(CJK)?.length ?? 0) * 2 > label.replace(/ /g, "").length;
+const noSpace = (label: string): boolean => (label.match(NO_SPACE)?.length ?? 0) > 0;
+const widthOf = (label: string): number => {
+  const wide = label.match(NO_SPACE)?.length ?? 0;
+  return wide + (label.length - wide) / 2;
+};
+const cutToWidth = (label: string, max: number): string => {
+  let out = "";
+  for (const ch of label) {
+    if (widthOf(out + ch) > max) break;
+    out += ch;
+  }
+  return out.trim();
+};
 
 export function isValidLabel(label: string): boolean {
   const words = label.split(" ").filter(Boolean);
-  const cjk = isCjk(label);
+  const cjk = noSpace(label);
   return (
     label.length >= (cjk ? CJK_MIN_CHARS : LABEL_MIN_CHARS) &&
-    label.length <= (cjk ? CJK_MAX_CHARS : LABEL_MAX_CHARS) &&
+    (cjk ? widthOf(label) <= CJK_MAX_CHARS && label.length <= LABEL_MAX_CHARS : label.length <= LABEL_MAX_CHARS) &&
     words.length >= (cjk ? 1 : LABEL_MIN_WORDS) &&
     words.length <= LABEL_MAX_WORDS &&
     !HAS_QUOTE.test(label) &&

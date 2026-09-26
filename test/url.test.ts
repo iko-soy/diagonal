@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isValidLabel, labelOf, repairLabel, safeEmoji, titleKey } from "../src/shared/label";
 import { colorFor, hostname, isInternalUrl, promptAddress, promptUrl, provisionalTitle, registrableDomain, trimText } from "../src/shared/url";
 import { withDefaults } from "../src/background/settings";
+import labelCases from "../host/tests/golden/labels.json";
 
 describe("url helpers", () => {
   it("strips www.", () => {
@@ -45,19 +46,12 @@ describe("url helpers", () => {
   });
 });
 
-describe("labels", () => {
-  it.each([
-    ['"Rust async runtimes."', "Rust async runtimes"],
-    ["rust async runtimes", "Rust async runtimes"],
-    ["Rust tabs and docs", "Rust and docs"],
-    ["One two three four five six", "One two three four"],
-    ["Machine learning research papers reading list", "Machine learning research"],
-  ])("repairs %s", (raw, fixed) => {
-    expect(repairLabel(raw)).toBe(fixed);
-  });
+// The same cases run against the host's validate.repair_label, so the two sides agree on every label.
+const LABEL_CASES = labelCases as [string, string | null][];
 
-  it.each(["Tabs", "Misc stuff", "", "x", "Supercalifragilisticexpialidocious extraordinarily"])("rejects %s", (raw) => {
-    expect(repairLabel(raw)).toBeUndefined();
+describe("labels", () => {
+  it.each(LABEL_CASES)("repairs %s", (raw, fixed) => {
+    expect(repairLabel(raw) ?? null).toBe(fixed);
   });
 
   it("validates", () => {

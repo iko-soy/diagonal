@@ -80,7 +80,7 @@ export function notices(s: Health): Notice[] {
         out.push({ tone: "bad", title: "Naming is paused", body: s.message || "The helper didn't answer. Diagonal retries on its own." });
     }
   }
-  if (s.timeoutHint && s.health !== "degraded") {
+  if (s.timeoutHint) {
     out.push({ tone: "info", title: "The model is slow right now", body: "It timed out three times in a row. You can give it longer under Naming in Settings." });
   }
   return out;

@@ -102,6 +102,9 @@ export function normalizeReply<T>(reply: unknown, at: number): HostReply<T> {
   };
 }
 
+/** Errors about what one request carried, not about the host: they don't count toward pausing it. */
+export const REQUEST_ERRORS = new Set<HostErrorCode>(["GUARDRAIL", "BAD_MODEL_OUTPUT", "OVER_BUDGET", "BAD_REQUEST"]);
+
 /** Errors that mean "fix the setup", not "try this group again later". */
 export const SETUP_ERRORS = new Set<HostErrorCode>([
   "HOST_NOT_FOUND", "HOST_FORBIDDEN", "FORBIDDEN_ORIGIN", "SCHEMA_MISSING", "MODEL_UNAVAILABLE", "LICENSE_REQUIRED",

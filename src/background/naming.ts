@@ -1,4 +1,4 @@
-import { labelOf, repairLabel, safeEmoji, sameLabel, stripTitle, LABEL_MAX_CHARS } from "../shared/label";
+import { labelOf, repairLabel, safeEmoji, sameLabel, stripTitle, titleKey, LABEL_MAX_CHARS } from "../shared/label";
 import { sha1 } from "../shared/sha1";
 import { isInternalUrl, promptUrl, trimText } from "../shared/url";
 import type { HostOpts, HostReply } from "./host";
@@ -60,7 +60,7 @@ export const settled = (t: { status?: string }): boolean => t.status !== "loadin
 
 /** sha-1 of the sorted `url|title` lines: reorder-proof, changes when a member or its title does. */
 export const membersHash = (members: Pick<Member, "url" | "title">[]): string =>
-  sha1(members.map((m) => `${m.url}|${m.title}`).sort().join("\n"));
+  sha1(members.map((m) => `${m.url}|${titleKey(m.title)}`).sort().join("\n"));
 
 export const memberUrls = (members: Pick<Member, "url">[]): string[] => members.map((m) => m.url).sort();
 

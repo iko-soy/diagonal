@@ -1,6 +1,7 @@
 import type { GroupColor } from "../shared/colors";
 import { isColor } from "../shared/colors";
 import { colorFor, isInternalUrl, parse, provisionalTitle, trimText } from "../shared/url";
+import { titleKey } from "../shared/label";
 import type { Settings } from "./settings";
 import { markDirty, newGroupRecord, type GroupOrigin, type GroupRecord, type RemovedGroup, type State, type TabRecord } from "./state";
 
@@ -113,7 +114,7 @@ const handlers: Handlers = {
       else loose(rec, ctx, out);
       return;
     }
-    const titleChanged = before.title !== rec.title;
+    const titleChanged = titleKey(before.title) !== titleKey(rec.title); // not an unread count ticking over
     const pathChanged = pathKey(before.url) !== pathKey(rec.url);
     if (pathChanged) rec.keepLoose = undefined; // a new page is fair game again
     if (before.groupId !== rec.groupId) {
@@ -423,6 +424,7 @@ function upsertTab(s: State, tab: TabSnapshot, now: number): TabRecord {
   if (before?.parkedFrom) rec.parkedFrom = before.parkedFrom;
   if (before?.parkedAt) rec.parkedAt = before.parkedAt;
   if (before?.organizedKey) rec.organizedKey = before.organizedKey;
+  if (before?.organizeRefused) rec.organizeRefused = before.organizeRefused;
   if (before?.handPlaced) rec.handPlaced = true;
   if (before?.fitPending) rec.fitPending = true;
   s.tabs[tab.id] = rec;

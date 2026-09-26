@@ -21,6 +21,7 @@ export interface TabRecord {
   parkedAt?: number; // when the tidy sweep parked it: the archive clock starts here
   keepLoose?: string; // the user took this tab out of a group on this page: auto-organize leaves it be
   organizedKey?: string; // page + title when auto-organize last considered this tab
+  organizeRefused?: string; // page + title the model would not sort even alone: not sent again until it changes
   handPlaced?: boolean; // the user put this tab into its group: Diagonal won't take it out
   fitPending?: boolean; // moved to a new page inside a Diagonal group: check it still fits (fit.ts)
 }
@@ -48,6 +49,7 @@ export interface GroupRecord {
   nextAttemptAt?: number;
   registeredAt?: number; // first seen as a group Diagonal did not know: it may yet turn out to be one of Diagonal's coming back
   revivedAt?: number; // came back after Chromium removed it (window move, reopen, restart)
+  restored?: boolean; // "Restored": the archive brought back, not a topic other tabs should join
 }
 
 /** A group Chromium removed, kept for a day: it may come back (moved to another window, reopened, restored). */

@@ -107,6 +107,23 @@ describe("existing groups", () => {
     expect(list[0]).toEqual({ g: 0, title: "Trip 0", samples: ["Hotel"] });
   });
 
+  it("offers the groups in use when there are more than 12, not the oldest", () => {
+    const s = emptyState();
+    for (let i = 0; i < 15; i++) s.groups[i] = newGroupRecord(i, 1, "organize", "red", { stripTitle: `G ${i}`, lastNamedAt: 1000 - i });
+    s.tabs[1] = { id: 1, windowId: 1, groupId: 14, index: 0, url: "u", title: "Now", pinned: false, createdAt: 0, lastActivatedAt: 5000 };
+    const { ids } = existingGroupsFor(s, 1);
+    expect(ids[0]).toBe(14);
+    expect(ids).toContain(0);
+    expect(ids).not.toContain(13);
+  });
+
+  it("leaves out the Restored group, which is not a topic", () => {
+    const s = emptyState();
+    s.groups[1] = newGroupRecord(1, 1, "organize", "grey", { userNamed: true, stripTitle: "♻️ Restored", restored: true });
+    s.groups[2] = newGroupRecord(2, 1, "organize", "red", { stripTitle: "🦀 Rust" });
+    expect(existingGroupsFor(s, 1).ids).toEqual([2]);
+  });
+
   it("groups created by batch n come first for batch n+1", () => {
     const s = emptyState();
     for (let i = 0; i < 15; i++) s.groups[i] = newGroupRecord(i, 1, "organize", "red", { stripTitle: `G ${i}` });

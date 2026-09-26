@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidLabel, labelOf, repairLabel, safeEmoji } from "../src/shared/label";
+import { isValidLabel, labelOf, repairLabel, safeEmoji, titleKey } from "../src/shared/label";
 import { colorFor, hostname, isInternalUrl, promptAddress, promptUrl, provisionalTitle, registrableDomain, trimText } from "../src/shared/url";
 import { withDefaults } from "../src/background/settings";
 
@@ -72,6 +72,15 @@ describe("labels", () => {
   it("emoji outside the list fall back; FE0F is optional", () => {
     expect(safeEmoji("✈")).toBe("✈️");
     expect(safeEmoji("🦄")).toBe("🧭");
+  });
+
+  it("titleKey ignores the unread counts and bullets sites put in titles", () => {
+    expect(titleKey("(3) Inbox - Mail")).toBe(titleKey("(12) Inbox - Mail"));
+    expect(titleKey("Inbox (1,204) - me@example.com - Gmail")).toBe("Inbox - me@example.com - Gmail");
+    expect(titleKey("• Slack | general")).toBe("Slack | general");
+    expect(titleKey("[99+] Chat")).toBe("Chat");
+    expect(titleKey("Rust async")).toBe("Rust async");
+    expect(titleKey("Rust async")).not.toBe(titleKey("Rust sync"));
   });
 
   it("labelOf strips our emoji prefix", () => {

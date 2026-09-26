@@ -61,3 +61,10 @@ export function labelOf(title: string | undefined): string {
 
 export const sameLabel = (a: string | undefined, b: string | undefined): boolean =>
   !!a && !!b && labelOf(a).trim().toLocaleLowerCase() === labelOf(b).trim().toLocaleLowerCase();
+
+/**
+ * A page title without the unread counts and bullets sites add to it, "(3) Inbox" or "• Slack", so a count
+ * ticking over does not read as a new page. Only for noticing change: the model still sees the full title.
+ */
+export const titleKey = (title: string | undefined): string =>
+  (title ?? "").replace(/[(\[]\d[\d,.]*\+?[)\]]/g, "").replace(/^[\s•●▶*]+/u, "").replace(/\s+/g, " ").trim();

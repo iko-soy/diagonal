@@ -361,7 +361,7 @@ export async function restoreAll(rt: Runtime, windowId: number): Promise<number>
     if (t.id !== undefined) ids.push(t.id);
   }
   if (ids.length) {
-    await createManagedGroup(rt, ids, windowId, "organize", { title: stripTitle("Restored", RESTORED_EMOJI, rt.settings().emoji), color: "grey" }, { userNamed: true });
+    await createManagedGroup(rt, ids, windowId, "organize", { title: stripTitle("Restored", RESTORED_EMOJI, rt.settings().emoji), color: "grey" }, { userNamed: true, restored: true });
   }
   return ids.length;
 }

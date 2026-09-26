@@ -381,6 +381,7 @@ async function reconcile(reason: "startup" | "installed"): Promise<void> {
       parkedAt: prev?.parkedAt,
       keepLoose: prev?.keepLoose,
       organizedKey: prev?.organizedKey,
+      organizeRefused: prev?.organizeRefused,
       handPlaced: prev?.handPlaced,
       fitPending: prev?.fitPending,
       createdAt: prev?.createdAt ?? now,

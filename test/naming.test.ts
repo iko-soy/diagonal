@@ -162,6 +162,14 @@ describe("naming queue", () => {
     expect(state.groups[7].dirty).toBe(true);
   });
 
+  it("names a group whose member the browser discarded to save memory", async () => {
+    members = [member(1), member(2, { status: "unloaded" })];
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(state.groups[7].dirty).toBe(false);
+  });
+
   it("new-tab pages do not count as members", async () => {
     members = [member(1), member(2, { url: "brave://newtab/" })];
     naming.touch(7);

@@ -2,7 +2,7 @@ import { COLORS, isColor, type GroupColor } from "../shared/colors";
 import { labelOf, repairLabel, safeEmoji, stripTitle } from "../shared/label";
 import { colorFor, isInternalUrl, promptAddress, provisionalTitle } from "../shared/url";
 import { pathKey } from "./engine";
-import { membersHash, memberUrls, toItems, type Member, type NameItem } from "./naming";
+import { membersHash, memberUrls, settled, toItems, type Member, type NameItem } from "./naming";
 import { addToGroup, createManagedGroup, groupExists, ungroup, type Runtime } from "./runtime";
 import { markDirty, type State } from "./state";
 
@@ -377,8 +377,9 @@ export class AutoOrganizer {
     if (pausedUntil && pausedUntil > rt.now()) return; // the host-retry ping sweeps again when it recovers
     const tabs = (await chrome.tabs.query({ windowId }).catch(() => [])).sort((a, b) => a.index - b.index);
     const s = rt.state();
-    // Still-loading tabs are skipped here; finishing the load touches the window again.
-    const loose = tabs.filter((t) => organizable(t) && t.status === "complete" && !s.tabs[t.id!]?.keepLoose);
+    // Still-loading tabs are skipped here; finishing the load touches the window again. Discarded tabs keep
+    // their title and address, so they're sorted like loaded ones.
+    const loose = tabs.filter((t) => organizable(t) && settled(t) && !s.tabs[t.id!]?.keepLoose);
     const fresh = loose.filter((t) => s.tabs[t.id!]?.organizedKey !== organizedKeyOf(t));
     if (!fresh.length) return;
     const { ids: existingIds, list: existingGroups } = existingGroupsFor(s, windowId);

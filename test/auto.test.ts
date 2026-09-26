@@ -109,6 +109,12 @@ describe("auto-organize", () => {
     expect(calls[0].items.map((i) => i.title)).toEqual(["Tab 5", "Tab 6"]);
   });
 
+  it("sorts tabs the browser discarded, which keep their title and address", async () => {
+    const auto = setup([liveTab(1, { status: "unloaded" }), liveTab(2)]);
+    await auto.run(1);
+    expect(calls[0].items.map((i) => i.title)).toEqual(["Tab 1", "Tab 2"]);
+  });
+
   it("one loose tab with nothing to join waits for company", async () => {
     const auto = setup([liveTab(1)]);
     await auto.run(1);

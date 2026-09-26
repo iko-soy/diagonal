@@ -49,8 +49,14 @@ export interface NameResult {
   emoji: string;
 }
 
-/** Tabs that can describe a group: loaded web pages, not the new-tab page or internal pages. */
+/** Tabs that can describe a group: web pages, not the new-tab page or internal pages. */
 export const nameable = (m: Member): boolean => !isInternalUrl(m.url);
+
+/**
+ * Done loading, or not loaded at all: a tab the browser discarded to save memory (status "unloaded") keeps
+ * its title and address, so it can describe its group without being loaded again.
+ */
+export const settled = (t: { status?: string }): boolean => t.status !== "loading";
 
 /** sha-1 of the sorted `url|title` lines: reorder-proof, changes when a member or its title does. */
 export const membersHash = (members: Pick<Member, "url" | "title">[]): string =>
@@ -214,7 +220,7 @@ export class Naming {
     }
     const members = (await this.d.liveMembers(groupId))?.filter(nameable);
     if (!members) return;
-    if (members.length < 2 || members.some((m) => m.status !== "complete")) return; // stay dirty; next event or alarm
+    if (members.length < 2 || !members.every(settled)) return; // stay dirty; the load finishing touches it again
     if (!force && membersHash(members) === g.membersHash) {
       g.dirty = false;
       this.d.commit();
@@ -252,7 +258,7 @@ export class Naming {
     if (!g || !eligible(g, settings)) return;
     // Built lazily: a group that changed three times while queued is described once.
     const members = (await this.d.liveMembers(groupId))?.filter(nameable);
-    if (!members || members.length < 2 || members.some((m) => m.status !== "complete")) return;
+    if (!members || members.length < 2 || !members.every(settled)) return;
     const hash = membersHash(members);
     if (!force && hash === g.membersHash) {
       g.dirty = false;

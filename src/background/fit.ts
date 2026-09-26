@@ -1,6 +1,6 @@
 import { isInternalUrl } from "../shared/url";
 import { fitCheckable } from "./engine";
-import { toItems, type Member } from "./naming";
+import { settled, toItems, type Member } from "./naming";
 import type { OrganizePayload, OrganizeResult } from "./organize";
 import { ungroup, type Runtime } from "./runtime";
 
@@ -75,7 +75,7 @@ export class FitChecker {
     if (pausedUntil && pausedUntil > rt.now()) return;
 
     const others = (await chrome.tabs.query({ groupId: rec.groupId }).catch(() => []))
-      .filter((t) => t.id !== tabId && t.status === "complete" && !isInternalUrl(t.url))
+      .filter((t) => t.id !== tabId && settled(t) && !isInternalUrl(t.url))
       .sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0))
       .slice(0, FIT_SAMPLE);
     if (others.length < MIN_OTHERS) return done();

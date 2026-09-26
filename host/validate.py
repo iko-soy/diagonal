@@ -160,6 +160,10 @@ def is_valid_label(label):
     )
 
 
+def same_label(a, b):
+    return bool(a) and bool(b) and " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+
+
 def validate_name(out, payload):
     if not isinstance(out, dict):
         raise ValidationError("reply is not an object")
@@ -265,16 +269,52 @@ def organize_from_topics(out, payload, owner):
             votes = group_votes.setdefault(topic, {})
             votes[owner[i]] = votes.get(owner[i], 0) + 1
     if not tab_topic:
-        raise ValidationError("no tab got a topic")
+        if not any(isinstance(t, dict) and _in_range(t.get("index"), n_items) for t in out["tabs"]):
+            raise ValidationError("no tab got a topic")
+        # Every tab got only a vague topic ("Other", "Misc"): the model found nothing in common.
+        return validate_organize({"groups": [], "leftovers": []}, payload)
     clusters = {}
     for i in sorted(tab_topic):
         clusters.setdefault(tab_topic[i], []).append(i)
     groups = []
     for topic, members in clusters.items():
-        votes = group_votes.get(topic)
-        if votes:
-            g = max(sorted(votes), key=lambda k: votes[k])
+        g = _winner(group_votes.get(topic) or {}, members, payload)
+        if g is not None:
             groups.append({"existing": g, "members": members})
         else:
             groups.append({"title": "", "emoji": "", "color": "", "members": members})
     return validate_organize({"groups": groups, "leftovers": []}, payload)
+
+
+def _in_range(i, n):
+    return isinstance(i, int) and not isinstance(i, bool) and 0 <= i < n
+
+
+_WORD = re.compile(r"\w{3,}")
+
+
+def _words(text):
+    return {w.casefold() for w in _WORD.findall(text or "")}
+
+
+def _winner(votes, members, payload):
+    """The existing group a topic's tabs join: the one whose example tabs share it most. When two groups tie,
+    the one whose title and examples share more words with these tabs; when that ties too, none (the tabs
+    form a group of their own, or stay loose), rather than whichever group happens to be listed first."""
+    if not votes:
+        return None
+    top = max(votes.values())
+    tied = sorted(k for k, v in votes.items() if v == top)
+    if len(tied) == 1:
+        return tied[0]
+    tab_words = set().union(*(_words(payload["items"][i].get("title")) for i in members))
+    groups = {g["g"]: g for g in payload.get("existingGroups") or []}
+
+    def overlap(k):
+        g = groups.get(k) or {}
+        return len(tab_words & _words(" ".join([g.get("title") or "", *(g.get("samples") or [])])))
+
+    scores = {k: overlap(k) for k in tied}
+    best = max(scores.values())
+    leaders = [k for k in tied if scores[k] == best]
+    return leaders[0] if len(leaders) == 1 and best > 0 else None

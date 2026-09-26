@@ -27,6 +27,8 @@ export interface ExistingGroup {
 export interface OrganizePayload {
   items: NameItem[];
   existingGroups: ExistingGroup[];
+  /** Every group label in the window: a new group the host names must not repeat one. */
+  siblingTitles?: string[];
   allowNew: boolean;
   maxGroups: number;
   minGroupSize: number;
@@ -177,11 +179,17 @@ const CONTENT_ERRORS = new Set<HostErrorCode>(["OVER_BUDGET", "GUARDRAIL", "BAD_
 const MAX_TIMEOUT_SPLITS = 1;
 
 /** One organize call, with the retries that can rescue the same tabs: strict output, then no page text. */
-async function askOrganize(rt: Runtime, part: Member[], existingGroups: ExistingGroup[], withDescriptions: boolean): Promise<HostReply<OrganizeResult>> {
+async function askOrganize(rt: Runtime, part: Member[], windowId: number, existingGroups: ExistingGroup[], withDescriptions: boolean): Promise<HostReply<OrganizeResult>> {
   const settings = rt.settings();
+  const s = rt.state();
   const payload: OrganizePayload = {
     items: toItems(part, settings, withDescriptions),
     existingGroups,
+    siblingTitles: Object.values(s.groups)
+      .filter((g) => g.windowId === windowId && g.origin !== "tidy")
+      .map((g) => labelOf(g.stripTitle || g.title))
+      .filter(Boolean)
+      .slice(0, 20),
     allowNew: part.length >= 2,
     maxGroups: maxGroupsFor(part.length),
     minGroupSize: settings.organizeMinGroupSize,
@@ -224,7 +232,7 @@ export async function sortPart(rt: Runtime, part: Member[], run: SortRun, probe 
     run.left += part.length;
     return; // one tab and nothing to join: no call can place it (a probe still learns whether the model takes it)
   }
-  const reply = await askOrganize(rt, part, existingGroups, true);
+  const reply = await askOrganize(rt, part, run.windowId, existingGroups, true);
   if (!reply.ok) {
     const e = reply.error;
     const timedOut = e.code === "TIMEOUT" && part.length > 4 && run.timeoutSplits < MAX_TIMEOUT_SPLITS;

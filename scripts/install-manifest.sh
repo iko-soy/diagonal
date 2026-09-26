@@ -53,7 +53,16 @@ echo "host:     $BIN -> $SHARE/diagonal-host.py"
 "$BIN" --version >/dev/null  # the host must start with the python3 it was pinned to
 # Writes the manifest into every Chromium browser's NativeMessagingHosts folder (Chrome, Brave and
 # Brave Origin, Edge, Vivaldi, Arc, Opera, …) and checks each one the way the browser reads it.
-"$BIN" --register "$BIN"
+# A browser that was never opened has no folder yet: the rest of the install still runs, and the end
+# says how to finish.
+register_rc=0
+"$BIN" --register "$BIN" || register_rc=$?
+register_note() {
+  if [[ $register_rc -ne 0 ]]; then
+    echo "No browser could be set up for Diagonal yet. Open your browser once, then run: bash '$HERE/$(basename "$0")'"
+  fi
+}
+trap register_note EXIT
 
 FM="${DIAGONAL_FM:-/usr/bin/fm}"
 
@@ -89,7 +98,7 @@ fi
 # Diagonal also writes these on first use; doing it now lets the self-test below cover the model.
 schemas_out=$("$BIN" --install-schemas 2>&1) || true
 if selftest_out=$("$BIN" --selftest 2>&1); then
-  echo "Diagonal's host is ready."
+  [[ $register_rc -ne 0 ]] || echo "Diagonal's host is ready."
 else
   echo "Diagonal's host is installed, but its self-test found a problem:"
   echo "$schemas_out"

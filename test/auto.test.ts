@@ -94,6 +94,7 @@ describe("auto-organize", () => {
     await auto.run(1);
     expect(calls[0].items.map((i) => i.title)).toEqual(["Tab 3", "Tab 2"]);
     expect(calls[0].existingGroups).toEqual([expect.objectContaining({ g: 0, title: "Rust" })]);
+    expect(calls[0].siblingTitles).toEqual(["Rust"]);
     expect(live.find((t) => t.id === 3)!.groupId).toBe(50);
   });
 

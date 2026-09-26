@@ -255,28 +255,41 @@ PERMISSIVE = ["--guardrails", "permissive-content-transformations"]
 USAGE_EXIT = 64
 
 
-def run_fm(prompt, schema, model, timeout_s):
-    """`prompt` is a prompts.Prompt: its fixed rules go to -i, the tab text on stdin."""
+# Below this much time left in a request, a second fm call (the permissive retry, naming one more new
+# group) is not started: it would only be cut off.
+MIN_CALL_S = 5.0
+
+
+def run_fm(prompt, schema, opts):
+    """`prompt` is a prompts.Prompt: its fixed rules go to -i, the tab text on stdin. Every call in one
+    request shares its deadline, so the extension's guard (its timeout plus 10 s) is a real upper bound."""
     try:
-        return _run_fm(prompt, schema, model, timeout_s, [])
+        return _run_fm(prompt, schema, opts, [])
     except Fail as f:
-        if f.code != "GUARDRAIL":
+        if f.code != "GUARDRAIL" or time_left(opts) < MIN_CALL_S:
             raise
-    return _run_fm(prompt, schema, model, timeout_s, PERMISSIVE)
+    return _run_fm(prompt, schema, opts, PERMISSIVE)
 
 
-def _run_fm(prompt, schema, model, timeout_s, extra):
+def time_left(opts):
+    return opts["deadline"] - time.time()
+
+
+def _run_fm(prompt, schema, opts, extra):
     # The tab text goes on stdin (fm reads it there when no prompt argument is given), so it never shows up
     # in the process list. fm has no timeout of its own; subprocess enforces ours.
     # --greedy: the same tabs get the same topics and name on every run (measured on macOS 27: five runs,
-    # one answer), so groups don't get renamed or reshuffled each time Diagonal looks at them.
-    args = [FM, "respond", "--model", model, "--no-stream", "--greedy", "--schema", schema, "-i", prompt.instructions, *extra]
+    # one answer), so groups don't get renamed or reshuffled each time Diagonal looks at them. The strict
+    # retry after an unusable answer samples instead: greedy would give the same answer again.
+    greedy = [] if opts.get("strict") else ["--greedy"]
+    args = [FM, "respond", "--model", opts["model"], "--no-stream", *greedy, "--schema", schema, "-i", prompt.instructions, *extra]
+    timeout_s = max(1.0, time_left(opts))
     try:
         p = subprocess.run(args, input=prompt.text, capture_output=True, text=True, timeout=timeout_s, env=fm_env())
     except FileNotFoundError:
         raise Fail("MODEL_UNAVAILABLE", f"fm not found at {FM} — requires macOS 27")
     except subprocess.TimeoutExpired:
-        raise Fail("TIMEOUT", f"fm exceeded {timeout_s:g}s", retryable=True)
+        raise Fail("TIMEOUT", f"fm exceeded {opts['timeout_s']:g}s", retryable=True)
     if p.returncode != 0:
         code = classify(p.stderr, p.returncode)
         if code == "LICENSE_REQUIRED":
@@ -295,7 +308,7 @@ def organize_mode():
 
 def op_ping(_payload, _opts):
     if not os.path.exists(FM):
-        return {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": False,
+        return {"hostVersion": HOST_VERSION, "fmPath": FM, "fmAvailable": False, "licenseRequired": False,
                 "fmMessage": f"fm not found at {FM} — requires macOS 27", "schemasOk": False, "organizeMode": organize_mode()}
     license_required = False
     try:
@@ -367,7 +380,7 @@ def op_name(payload, opts):
         raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'name.json')}")
     prompt = fit(lambda cap: prompts.build_name_prompt(payload, strict=opts.get("strict", False), desc_cap=cap), len(payload["items"]))
     try:
-        out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
+        out = run_fm(prompt, schema, opts)
     except Fail as f:
         raise _fit_overflow(f, len(payload["items"]))
     try:
@@ -383,7 +396,7 @@ def op_organize(payload, opts):
         raise Fail("SCHEMA_MISSING", f"fm could not write {os.path.join(SCHEMAS, 'topics.json')}")
     prompt = fit(lambda cap: prompts.build_topics_prompt(payload, strict=opts.get("strict", False), desc_cap=cap), len(payload["items"]))
     try:
-        out = run_fm(prompt, schema, opts["model"], opts["timeout_s"])
+        out = run_fm(prompt, schema, opts)
     except Fail as f:
         raise _fit_overflow(f, len(payload["items"]))
     _, owner = prompts.topic_items(payload)
@@ -393,29 +406,31 @@ def op_organize(payload, opts):
         raise Fail("BAD_MODEL_OUTPUT", str(e), retryable=True, raw=json.dumps(out, ensure_ascii=False)[:2000])
     chars = prompts.size(prompt)
     if payload.get("nameGroups") is not False:  # the extension's fit check only needs the topics
-        chars += name_new_groups(result, payload, opts, time.time() + opts["timeout_s"])
+        chars += name_new_groups(result, payload, opts)
     return result, chars, "topics"
 
 
-def name_new_groups(result, payload, opts, deadline):
+def name_new_groups(result, payload, opts):
     """Title each new group with the name op (well under a second each on fm), so groups appear named.
-    A group that fails, or runs past the deadline, keeps "" and the extension's naming loop names it."""
-    taken = [g.get("title") for g in payload.get("existingGroups") or [] if g.get("title")]
+    A group that fails, runs past the request's deadline, or gets a title another group in the window
+    already has keeps "" and the extension's naming loop, which checks every sibling, names it."""
+    taken = [t for t in [g.get("title") for g in payload.get("existingGroups") or []] + list(payload.get("siblingTitles") or []) if t]
     chars = 0
     for g in result["groups"]:
         if "existing" in g or g.get("title"):
             continue
-        left = deadline - time.time()
-        if left < 5:
+        if time_left(opts) < MIN_CALL_S:
             break
         sub = {"items": [dict(payload["items"][i], i=n) for n, i in enumerate(g["members"])], "siblingTitles": taken[:20]}
         try:
-            named, n, _ = op_name(sub, {**opts, "timeout_s": min(opts["timeout_s"], left)})
+            named, n, _ = op_name(sub, {**opts, "strict": False})
         except Fail:
+            continue
+        chars += n
+        if any(validate.same_label(named["title"], t) for t in taken):
             continue
         g["title"], g["emoji"] = named["title"], named["emoji"]
         taken.append(named["title"])
-        chars += n
     return chars
 
 
@@ -429,8 +444,8 @@ def handle(req):
         raw_opts = req.get("opts") or {}
         timeout_ms = raw_opts.get("timeoutMs", 45000)
         timeout_ms = timeout_ms if isinstance(timeout_ms, (int, float)) and not isinstance(timeout_ms, bool) else 45000
-        opts = {"model": "system", "strict": bool(raw_opts.get("strict")),
-                "timeout_s": max(5.0, min(120.0, timeout_ms / 1000))}
+        timeout_s = max(5.0, min(120.0, timeout_ms / 1000))
+        opts = {"model": "system", "strict": bool(raw_opts.get("strict")), "timeout_s": timeout_s, "deadline": t0 + timeout_s}
         op = req["op"]
         if op == "ping":
             return {"v": 1, "id": rid, "ok": True, "result": op_ping(req["payload"], opts)}
@@ -553,14 +568,16 @@ def selftest():
 
     ping = op_ping({}, {})
     check("fm found", os.path.exists(FM), FM)
-    if ping["licenseRequired"]:
+    if not os.path.exists(FM):
+        return 1  # nothing else can work without it
+    if ping.get("licenseRequired"):
         check("fm terms accepted", False, f"run: {LICENSE_FIX}")
     else:
         check("model available (fm available --model system)", ping["fmAvailable"], ping["fmMessage"])
     for name in SCHEMA_COMMANDS:
         path = os.path.join(SCHEMAS, name)
         readable = os.path.isfile(path) and os.path.getsize(path) > 0
-        hint = f"written on their own after {LICENSE_FIX}" if ping["licenseRequired"] else "missing: run diagonal-host --install-schemas"
+        hint = f"written on their own after {LICENSE_FIX}" if ping.get("licenseRequired") else "missing: run diagonal-host --install-schemas"
         check(f"schema {name}", readable, path if readable else hint)
     check("allowed origin pinned", "<" not in ALLOWED_ORIGIN, ALLOWED_ORIGIN)
     if ping["fmAvailable"] and schema_path("name.json"):
@@ -670,7 +687,9 @@ def register(host_path):
             f.write("\n".join(written) + "\n")
     except OSError:
         pass
-    return 1 if failures else 0
+    # One browser that could not be written (a locked folder, a stale profile) does not undo the others:
+    # the install goes on and the ones that failed were named above.
+    return 0 if len(dirs) - failures > 0 else 1
 
 
 def unregister():

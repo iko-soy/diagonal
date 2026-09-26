@@ -287,6 +287,19 @@ class ErrorCodes(HostCase):
         self.assertIn("Reply with only the object", argv[argv.index("-i") + 1])
 
 
+    def test_strict_retry_samples_instead_of_repeating_the_greedy_answer(self):
+        self.respond(json.dumps({"title": "Rust async", "emoji": "🦀"}))
+        self.call("name", {"items": ITEMS3}, strict=True)
+        self.assertNotIn("--greedy", [a for a in self.argv_log() if a[0] == "respond"][0])
+
+    def test_permissive_retry_shares_the_request_deadline(self):
+        # The first call uses up the request's time: no second call runs past what the extension waits for.
+        self.control({"respond_queue": [{"stderr": "Error: The model's safety guardrails were triggered.\n", "exit": 1, "sleep": 2.5}]})
+        r = self.call("name", {"items": ITEMS3}, timeoutMs=5000)
+        self.assertEqual(r["error"]["code"], "GUARDRAIL")
+        self.assertEqual(len([a for a in self.argv_log() if a[0] == "respond"]), 1)
+
+
 class Organize(HostCase):
     ITEMS = ITEMS3 + [
         {"title": "Hotels in Lisbon", "url": "https://booking.com/lisbon"},
@@ -330,6 +343,33 @@ class Organize(HostCase):
         name_calls = self.stdin_log()[1:]
         self.assertIn("Tokio", name_calls[0])
         self.assertIn('"Lisbon trip"', name_calls[0])  # existing titles are off limits
+
+    def test_a_new_group_named_like_another_group_is_left_to_the_naming_loop(self):
+        self.control({"respond_queue": [
+            {"stdout": json.dumps({"tabs": [{"index": i, "topic": "Programming"} for i in (0, 1, 2)]})},
+            {"stdout": json.dumps({"title": "Rust async", "emoji": "🦀"})},
+        ]})
+        r = self.call("organize", {"items": self.ITEMS, "siblingTitles": ["rust async"]})
+        self.assertEqual(r["result"]["groups"][0]["title"], "")
+        self.assertIn('"rust async"', self.stdin_log()[1])  # the name call was told, too
+
+    def test_a_topic_two_groups_share_equally_joins_neither_unless_the_words_say_which(self):
+        existing = [{"g": 0, "title": "Lisbon trip", "samples": ["Flights to Lisbon"]},
+                    {"g": 1, "title": "Porto trip", "samples": ["Porto restaurants"]}]
+        # Examples 8 (group 0) and 9 (group 1) both got Travel: a tie.
+        self.topics([(3, "Travel"), (4, "Travel"), (8, "Travel"), (9, "Travel")])
+        r = self.call("organize", {"items": self.ITEMS, "existingGroups": existing})
+        self.assertEqual([g.get("existing") for g in r["result"]["groups"]], [0])  # "Lisbon" is in both tabs' titles
+        items = [{"title": "Beach day", "url": "https://a.example/"}, {"title": "City walk", "url": "https://b.example/"}]
+        self.topics([(0, "Travel"), (1, "Travel"), (2, "Travel"), (3, "Travel")])
+        r = self.call("organize", {"items": items, "existingGroups": existing})
+        self.assertNotIn("existing", r["result"]["groups"][0])
+
+    def test_only_vague_topics_leave_every_tab_loose(self):
+        self.topics([(0, "Other"), (1, "Misc"), (2, "General")])
+        r = self.call("organize", {"items": ITEMS3})
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(r["result"], {"groups": [], "leftovers": [0, 1, 2]})
 
     def test_two_topics_joining_one_group_make_one_join(self):
         # The group's two example tabs (8 and 9) got different topics; both topics still join group 0 once.
@@ -487,6 +527,15 @@ class Register(HostCase):
         self.assertEqual(p.returncode, 1)
         self.assertIn("missing or not executable", p.stderr)
 
+    def test_one_browser_that_cannot_be_written_does_not_fail_the_rest(self):
+        chrome = self.make_profile("Google/Chrome")
+        brave = self.make_profile("BraveSoftware/Brave-Browser")
+        open(os.path.join(brave, "NativeMessagingHosts"), "w").close()  # a file where the folder should be
+        p = self.run_copy("--register", self.host_copy)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("BraveSoftware/Brave-Browser: could not write", p.stderr)
+        self.assertTrue(os.path.exists(os.path.join(chrome, "NativeMessagingHosts", "io.diagonal.host.json")))
+
     def test_no_browser_found(self):
         os.makedirs(self.env["DIAGONAL_APP_SUPPORT"])
         p = self.run_copy("--register", self.host_copy)
@@ -507,6 +556,13 @@ class SelfTest(HostCase):
         code, _, p = self.run_host(args=["--selftest"])
         self.assertEqual(code, 1)
         self.assertIn("FAIL model available", p.stdout.decode())
+
+    def test_selftest_without_fm_says_so_and_stops(self):
+        self.env["DIAGONAL_FM"] = os.path.join(self.tmp, "no-such-fm")
+        code, _, p = self.run_host(args=["--selftest"])
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL fm found", p.stdout.decode())
+        self.assertNotIn("Traceback", p.stderr.decode())
 
     def test_selftest_names_the_license_fix(self):
         self.control({"license": True})

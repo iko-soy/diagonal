@@ -9,8 +9,11 @@ on:
 permissions:
   contents: write
 
+# One release at a time, in push order: an older run finishing last must not become the latest release,
+# which is what the Homebrew cask downloads.
 concurrency:
-  group: release-${{ github.sha }}
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:

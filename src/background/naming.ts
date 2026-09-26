@@ -312,6 +312,7 @@ export class Naming {
           }
           if (e.code === "BAD_MODEL_OUTPUT" && !retried.output) {
             retried.output = true;
+            mustDifferFrom = withRejected(mustDifferFrom, e.raw);
             continue;
           }
           this.fail(g, e, hash);
@@ -323,6 +324,7 @@ export class Naming {
           const e: HostError = { code: "BAD_MODEL_OUTPUT", message: "label failed worker validation", raw: JSON.stringify(reply.result).slice(0, 500), at: this.d.now() };
           if (!retried.output) {
             retried.output = true;
+            mustDifferFrom = withRejected(mustDifferFrom, e.raw);
             continue;
           }
           this.fail(g, e, hash);
@@ -410,6 +412,17 @@ export class Naming {
     g.nextAttemptAt = now + backoffFor(g.nameAttempts);
     this.d.scheduleFallback(g.nextAttemptAt);
   }
+}
+
+/** The retry after an unusable title lists that title as not allowed, so the model doesn't give it again. */
+function withRejected(list: string[] | undefined, raw: string | undefined): string[] | undefined {
+  let title: unknown;
+  try {
+    title = raw ? JSON.parse(raw)?.title : undefined;
+  } catch {
+    return list;
+  }
+  return typeof title === "string" && title.trim() ? [...(list ?? []), title.trim().slice(0, 60)] : list;
 }
 
 /** The retry bookkeeping of earlier failures, which no longer applies. */

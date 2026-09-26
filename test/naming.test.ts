@@ -299,6 +299,14 @@ describe("naming queue", () => {
     expect(writes).toEqual([[7, "🦀 Rust crates"]]);
   });
 
+  it("the retry after a title the host rejected lists that title as not allowed", async () => {
+    replies.push({ ok: false, error: { code: "BAD_MODEL_OUTPUT", message: "rules", raw: JSON.stringify({ title: "Python", emoji: "🐍" }) } });
+    naming.touch(7);
+    await settle();
+    expect(calls).toHaveLength(2);
+    expect(calls[1].mustDifferFrom).toEqual(["Python"]);
+  });
+
   it("a group renamed by hand while the model runs keeps the user's title", async () => {
     const n = new Naming({
       ...(naming as any).d,

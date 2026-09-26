@@ -18,6 +18,7 @@ export interface TabRecord {
   createdAt: number;
   lastActivatedAt: number; // epoch ms
   parkedFrom?: string; // title of the group the tab was in before the tidy sweep parked it
+  parkedAt?: number; // when the tidy sweep parked it: the archive clock starts here
   keepLoose?: string; // the user took this tab out of a group on this page: auto-organize leaves it be
   organizedKey?: string; // page + title when auto-organize last considered this tab
   handPlaced?: boolean; // the user put this tab into its group: Diagonal won't take it out
@@ -45,7 +46,12 @@ export interface GroupRecord {
   nameAttempts: number;
   firstFailureAt?: number;
   nextAttemptAt?: number;
+  registeredAt?: number; // first seen as a group Diagonal did not know: it may yet turn out to be one of Diagonal's coming back
+  revivedAt?: number; // came back after Chromium removed it (window move, reopen, restart)
 }
+
+/** A group Chromium removed, kept for a day: it may come back (moved to another window, reopened, restored). */
+export type RemovedGroup = GroupRecord & { removedAt: number };
 
 export interface ArchivedTab {
   url: string;
@@ -107,6 +113,11 @@ export interface SweepMove {
   groupId: number;
   index: number;
   windowId: number;
+  /** The group the tab was in, so undo can make it again if parking emptied it. */
+  group?: Pick<
+    GroupRecord,
+    "origin" | "managed" | "userNamed" | "title" | "emoji" | "stripTitle" | "color" | "colorLocked" | "keep" | "membersHash" | "memberUrls" | "lastNamedAt"
+  >;
 }
 
 export interface State {
@@ -124,6 +135,8 @@ export interface State {
   ownUngroups: Record<number, number>;
   /** Tabs the worker itself is adding to a group: joining it is not the user's choice. */
   ownAdds: Record<number, number>;
+  /** Groups Chromium removed lately, by their last id. */
+  removedGroups: Record<number, RemovedGroup>;
   lastSweep?: { at: number; moves: SweepMove[] };
   lastOrganize?: { at: number; previous: Record<number, number> };
   tidyCandidates?: number;
@@ -139,6 +152,7 @@ export const emptyState = (): State => ({
   pendingCreates: [],
   ownUngroups: {},
   ownAdds: {},
+  removedGroups: {},
 });
 
 /** Accept whatever was stored and bring it to the current shape. */
@@ -160,6 +174,7 @@ export function migrate(raw: unknown): State {
     pendingCreates: r.pendingCreates ?? [],
     ownUngroups: r.ownUngroups ?? {},
     ownAdds: r.ownAdds ?? {},
+    removedGroups: r.removedGroups ?? {},
   };
 }
 

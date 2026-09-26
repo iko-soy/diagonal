@@ -34,6 +34,19 @@ describe("park eligibility", () => {
     expect(isParkCandidate(tab, s, cfg, NOW)).toBe(expected);
   });
 
+  it("a Diagonal group you renamed counts as yours", () => {
+    const s2 = emptyState();
+    s2.groups[14] = newGroupRecord(14, 1, "organize", "red", { userNamed: true, stripTitle: "Tax 2026" });
+    expect(isParkCandidate(tt({ groupId: 14 }), s2, cfg, NOW)).toBe(false);
+    expect(isParkCandidate(tt({ groupId: 14 }), s2, settings({ tidyUserGroups: true }), NOW)).toBe(true);
+  });
+
+  it("after a restart, the stored last use wins over Chromium's restore time", () => {
+    const s2 = emptyState();
+    s2.tabs[1] = { id: 1, windowId: 1, groupId: -1, index: 0, url: "", title: "", pinned: false, createdAt: 0, lastActivatedAt: NOW - 30 * HOUR };
+    expect(isParkCandidate(tt({ lastAccessed: NOW - 60_000 }), s2, cfg, NOW)).toBe(true);
+  });
+
   it("user groups are eligible when 'Tidy inside my own groups' is on", () => {
     expect(isParkCandidate(tt({ groupId: 10 }), s, settings({ tidyUserGroups: true }), NOW)).toBe(true);
   });
@@ -51,12 +64,30 @@ describe("park eligibility", () => {
 });
 
 describe("archive", () => {
-  it("parked tabs idle past archiveAfter are archived; 0 means never", () => {
+  const record = (id: number, over: object = {}) => ({ id, windowId: 1, groupId: 12, index: 0, url: "", title: "", pinned: false, createdAt: 0, lastActivatedAt: NOW - 60 * HOUR, ...over });
+
+  it("parked tabs that sat in Parked past archiveAfter are archived; 0 means never", () => {
     const s = emptyState();
     s.groups[12] = newGroupRecord(12, 1, "tidy", "grey");
-    const parked = tt({ groupId: 12, lastAccessed: NOW - 49 * HOUR });
-    expect(archiveCandidates([parked, tt()], s, settings(), NOW)).toEqual([parked]);
+    s.tabs[1] = record(1, { parkedAt: NOW - 49 * HOUR });
+    const parked = tt({ groupId: 12, lastAccessed: NOW - 60 * HOUR });
+    expect(archiveCandidates([parked, tt({ id: 2 })], s, settings(), NOW)).toEqual([parked]);
     expect(archiveCandidates([parked], s, settings({ archiveAfterHours: 0 }), NOW)).toEqual([]);
+  });
+
+  it("counts from when the tab was parked, not from when it was last used", () => {
+    const s = emptyState();
+    s.groups[12] = newGroupRecord(12, 1, "tidy", "grey");
+    s.tabs[1] = record(1, { parkedAt: NOW - HOUR }); // unused for 60 h, but parked only an hour ago
+    s.tabs[2] = record(2); // in Parked with no parking time: its clock has not started
+    expect(archiveCandidates([tt({ groupId: 12, lastAccessed: NOW - 60 * HOUR }), tt({ id: 2, groupId: 12 })], s, settings(), NOW)).toEqual([]);
+  });
+
+  it("an address added to Never tidy is not closed from Parked", () => {
+    const s = emptyState();
+    s.groups[12] = newGroupRecord(12, 1, "tidy", "grey");
+    s.tabs[1] = record(1, { parkedAt: NOW - 49 * HOUR });
+    expect(archiveCandidates([tt({ groupId: 12, url: "https://jira.corp/x" })], s, settings({ tidyExclusions: ["jira."] }), NOW)).toEqual([]);
   });
 
   it("is newest first and capped, oldest dropped", () => {

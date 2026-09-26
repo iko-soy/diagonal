@@ -240,6 +240,14 @@ describe("auto-organize triggers", () => {
     expect(actions).toContainEqual({ type: "loose", windowId: 1 });
   });
 
+  it("parking keeps the title of the group the tab came from, for the archive", () => {
+    const s = stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 20 })], [{ id: 10, origin: "organize", title: "Rust async" }, { id: 20, origin: "tidy" }]);
+    s.tabs[1].parkedFrom = "Rust async"; // set by the sweep just before it moves the tab
+    const moved = step(s, { type: "tabUpdated", tab: tab(1, { groupId: 20 }) }, ctx());
+    const discarded = step(moved.state, { type: "tabUpdated", tab: tab(1, { groupId: 20, status: "unloaded" }) }, ctx());
+    expect(discarded.state.tabs[1].parkedFrom).toBe("Rust async");
+  });
+
   it("opening a parked tab takes it out of Parked", () => {
     const s = stateWith([tab(1, { groupId: 20 }), tab(2, { groupId: 20 })], [{ id: 20, origin: "tidy" }]);
     s.tabs[1].parkedFrom = "Rust async";
@@ -308,5 +316,123 @@ describe("fit check", () => {
     const out = step(pending, { type: "tabUpdated", tab: tab(1, { url: "https://news.example/story" }) }, ctx());
     expect(out.state.tabs[1].fitPending).toBeUndefined();
     expect(out.state.tabs[1].handPlaced).toBeUndefined();
+  });
+});
+
+describe("groups Chromium removes and brings back", () => {
+  const opener = () => {
+    const s = stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 10 })], [{ id: 10, origin: "opener", title: "🦀 Rust async" }]);
+    s.groups[10].color = "orange";
+    return s;
+  };
+  const run = (s: ReturnType<typeof opener>, events: Parameters<typeof step>[1][], now = 1_000_000) =>
+    events.reduce((acc, e) => step(acc, e, ctx(now)).state, s);
+
+  it("a group moved to another window stays Diagonal's, and its tabs are not taken for your choices", () => {
+    const moved = run(opener(), [
+      { type: "groupRemoved", groupId: 10 },
+      { type: "tabUpdated", tab: tab(1) },
+      { type: "tabUpdated", tab: tab(2) },
+      { type: "groupCreated", group: { id: 10, windowId: 2, title: "🦀 Rust async", color: "orange" } },
+      { type: "tabUpdated", tab: tab(1, { groupId: 10, windowId: 2 }) },
+      { type: "tabUpdated", tab: tab(2, { groupId: 10, windowId: 2 }) },
+    ]);
+    expect(moved.groups[10]).toMatchObject({ origin: "opener", managed: true, userNamed: false, windowId: 2 });
+    for (const id of [1, 2]) {
+      expect(moved.tabs[id].groupId).toBe(10);
+      expect(moved.tabs[id].keepLoose).toBeUndefined();
+      expect(moved.tabs[id].handPlaced).toBeUndefined();
+    }
+    expect(moved.removedGroups[10]).toBeUndefined();
+  });
+
+  it("the same when a tab's new group is reported before the group itself", () => {
+    const moved = run(opener(), [
+      { type: "groupRemoved", groupId: 10 },
+      { type: "tabUpdated", tab: tab(1) },
+      { type: "tabUpdated", tab: tab(1, { groupId: 10, windowId: 2 }) },
+      { type: "groupCreated", group: { id: 10, windowId: 2, title: "🦀 Rust async", color: "orange" } },
+    ]);
+    expect(moved.groups[10].origin).toBe("opener");
+    expect(moved.tabs[1].keepLoose).toBeUndefined();
+    expect(moved.tabs[1].handPlaced).toBeUndefined();
+  });
+
+  it("a closed group reopened untitled, then titled, is Diagonal's again", () => {
+    const closed = run(opener(), [
+      { type: "tabRemoved", tabId: 1 },
+      { type: "tabRemoved", tabId: 2 },
+      { type: "groupRemoved", groupId: 10 },
+    ]);
+    const later = 1_000_000 + 3_600_000;
+    const back = run(closed, [
+      { type: "groupCreated", group: { id: 77, windowId: 1, title: "", color: "orange" } },
+      { type: "groupUpdated", group: { id: 77, windowId: 1, title: "🦀 Rust async", color: "orange" } },
+    ], later);
+    expect(back.groups[77]).toMatchObject({ origin: "opener", managed: true, userNamed: false, stripTitle: "🦀 Rust async" });
+  });
+
+  it("a group you make and title yourself later is still yours", () => {
+    const closed = run(opener(), [{ type: "groupRemoved", groupId: 10 }]);
+    const made = run(closed, [{ type: "groupCreated", group: { id: 77, windowId: 1, title: "", color: "orange" } }]);
+    const titled = step(made, { type: "groupUpdated", group: { id: 77, windowId: 1, title: "🦀 Rust async", color: "orange" } }, ctx(1_000_000 + 60_000)).state;
+    expect(titled.groups[77]).toMatchObject({ origin: "user", userNamed: true });
+  });
+
+  it("ungrouping by hand still keeps the tabs loose", () => {
+    const out = run(opener(), [
+      { type: "tabUpdated", tab: tab(1) },
+      { type: "tabUpdated", tab: tab(2) },
+      { type: "groupRemoved", groupId: 10 },
+    ]);
+    expect(out.tabs[1].keepLoose).toBe("https://example.com/1");
+  });
+
+  it("keeps a day of removed groups, at most 20", () => {
+    let s = opener();
+    for (let id = 100; id < 125; id++) {
+      s.groups[id] = { ...s.groups[10], id };
+      s = step(s, { type: "groupRemoved", groupId: id }, ctx(1_000_000 + id)).state;
+    }
+    expect(Object.keys(s.removedGroups)).toHaveLength(20);
+    s = step(s, { type: "tabActivated", tabId: 1 }, ctx(1_000_000 + 25 * 3_600_000)).state;
+    expect(Object.keys(s.removedGroups)).toHaveLength(0);
+  });
+});
+
+describe("tabs you place", () => {
+  it("a new tab made inside a group ('New tab in group') is yours there", () => {
+    const s = stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+    const { state } = step(s, { type: "tabCreated", tab: tab(3, { groupId: 10, url: "brave://newtab/" }) }, ctx());
+    expect(state.tabs[3].handPlaced).toBe(true);
+  });
+
+  it("a link opened from a grouped tab is not", () => {
+    const opener = tab(1, { groupId: 10 });
+    const s = stateWith([opener, tab(2, { groupId: 10 })], [{ id: 10, origin: "organize" }]);
+    const { state } = step(s, { type: "tabCreated", tab: tab(3, { groupId: 10, openerTabId: 1 }), opener }, ctx());
+    expect(state.tabs[3].handPlaced).toBeUndefined();
+  });
+
+  it("a tab that joins a group has no loose choice left, even if a late event said it left", () => {
+    const s = stateWith([tab(1), tab(2)], [{ id: 10, origin: "opener" }]);
+    s.tabs[1].keepLoose = "https://example.com/1";
+    s.ownAdds[1] = 1_000_000;
+    const { state } = step(s, { type: "tabUpdated", tab: tab(1, { groupId: 10 }) }, ctx());
+    expect(state.tabs[1].keepLoose).toBeUndefined();
+  });
+
+  it("a new tab whose first load redirects is not fit-checked", () => {
+    const s = stateWith([tab(1, { groupId: 10 }), tab(2, { groupId: 10 }), tab(3, { groupId: 10 })], [{ id: 10, origin: "opener" }]);
+    const opened = step(s, { type: "tabCreated", tab: tab(4, { groupId: 10, openerTabId: 1, url: "", pendingUrl: "http://blog.example.org/post", status: "loading" }), opener: tab(1, { groupId: 10 }) }, ctx()).state;
+    const landed = step(opened, { type: "tabUpdated", tab: tab(4, { groupId: 10, openerTabId: 1, url: "https://blog.example.org/post" }) }, ctx());
+    expect(landed.state.tabs[4].fitPending).toBeUndefined();
+  });
+
+  it("leaving Parked stops the archive clock", () => {
+    const s = stateWith([tab(1, { groupId: 20 }), tab(2, { groupId: 20 })], [{ id: 20, origin: "tidy" }]);
+    s.tabs[1].parkedAt = 5;
+    expect(step(s, { type: "tabUpdated", tab: tab(1) }, ctx()).state.tabs[1].parkedAt).toBeUndefined();
+    expect(step(s, { type: "tabActivated", tabId: 1 }, ctx()).state.tabs[1].parkedAt).toBeUndefined();
   });
 });

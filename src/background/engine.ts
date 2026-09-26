@@ -2,7 +2,7 @@ import type { GroupColor } from "../shared/colors";
 import { isColor } from "../shared/colors";
 import { colorFor, isInternalUrl, parse, provisionalTitle, trimText } from "../shared/url";
 import type { Settings } from "./settings";
-import { markDirty, newGroupRecord, type GroupOrigin, type GroupRecord, type State, type TabRecord } from "./state";
+import { markDirty, newGroupRecord, type GroupOrigin, type GroupRecord, type RemovedGroup, type State, type TabRecord } from "./state";
 
 /**
  * Section 5: the structural rules as a pure function `(State, Event) → (State, Action[])`.
@@ -61,6 +61,10 @@ export interface Ctx {
 export const DISSOLVE_DELAY_MS = 1500;
 export const OWN_CREATE_WINDOW_MS = 2000;
 export const OWN_WRITE_WINDOW_MS = 60_000;
+/** A group moved to another window is removed and recreated with the same id within milliseconds. */
+export const REVIVE_WINDOW_MS = 10_000;
+export const REMOVED_KEEP_MS = 24 * 3_600_000;
+export const REMOVED_CAP = 20;
 
 /** The pure form: never touches `prev`. */
 export function step(prev: State, event: EngineEvent, ctx: Ctx): { state: State; actions: Action[] } {
@@ -85,8 +89,16 @@ type Handlers = { [K in EngineEvent["type"]]: Handler<Extract<EngineEvent, { typ
 const handlers: Handlers = {
   tabCreated(s, { tab, opener }, ctx, out) {
     if (tab.incognito) return;
+    const known = !!s.tabs[tab.id];
     const rec = upsertTab(s, tab, ctx.now);
-    if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);
+    if (rec.groupId !== -1) {
+      // Born inside a group with no page that led to it ("New tab in group"): the user put it there.
+      // A link opened from a grouped tab has an opener and stays Diagonal's to check.
+      const g = s.groups[rec.groupId];
+      const newPage = tab.openerTabId === undefined || isInternalUrl(tab.pendingUrl || tab.url);
+      if (!known && newPage && g && !revivedLately(g, ctx.now)) rec.handPlaced = true;
+      dirty(s, rec.groupId, ctx, out);
+    }
     const before = out.length;
     openerRule(s, tab, opener ?? snapshotOf(s, tab.openerTabId), ctx, out);
     if (out.length === before) loose(rec, ctx, out);
@@ -106,8 +118,18 @@ const handlers: Handlers = {
     if (pathChanged) rec.keepLoose = undefined; // a new page is fair game again
     if (before.groupId !== rec.groupId) {
       left(s, before.groupId, ctx, out);
+      if (inTransit(s, before.groupId, rec.groupId, ctx.now)) {
+        // Chromium moves a group to another window by removing it, ungrouping its tabs and grouping
+        // them again under the same id: nobody chose anything, so the tab keeps what it had.
+        delete s.ownAdds[rec.id];
+        if (rec.groupId !== -1) dirty(s, rec.groupId, ctx, out);
+        else loose(rec, ctx, out);
+        return;
+      }
       rec.fitPending = undefined;
+      if (s.groups[before.groupId]?.origin === "tidy") rec.parkedAt = undefined; // out of Parked
       if (rec.groupId !== -1) {
+        rec.keepLoose = undefined; // in a group now: there is no loose choice left to protect
         // Into a group: ours if the worker put it there, otherwise the user did and it stays.
         if (s.ownAdds[rec.id] !== undefined) {
           delete s.ownAdds[rec.id];
@@ -135,7 +157,9 @@ const handlers: Handlers = {
       if (titleChanged || pathChanged || loaded || before.pinned !== rec.pinned) loose(rec, ctx, out);
       return;
     }
-    if (pathChanged && fitCheckable(s, rec, ctx.settings)) rec.fitPending = true;
+    // Only a tab that had finished a page moves on: a new tab's first load redirecting (http to https,
+    // a link shortener) is still its first page.
+    if (pathChanged && before.status === "complete" && fitCheckable(s, rec, ctx.settings)) rec.fitPending = true;
     if (rec.fitPending && rec.status === "complete") out.push({ type: "checkFit" });
     if (titleChanged || pathChanged) dirty(s, rec.groupId, ctx, out);
     else if (before.status !== "complete" && rec.status === "complete" && s.groups[rec.groupId]?.dirty) {
@@ -160,6 +184,7 @@ const handlers: Handlers = {
     // Using a parked tab means it is not stale: it leaves Parked and auto-organize places it.
     if (rec.groupId !== -1 && s.groups[rec.groupId]?.origin === "tidy") {
       rec.parkedFrom = undefined;
+      rec.parkedAt = undefined;
       out.push({ type: "unpark", tabId, groupId: rec.groupId });
     }
   },
@@ -173,6 +198,15 @@ const handlers: Handlers = {
     if (!rec) {
       registerGroup(s, group, ctx, out);
       return;
+    }
+    // A group Chromium restores (a reopened window, the session after a restart) is created untitled
+    // and gets its title a moment later: that title and colour can say it is one of Diagonal's back.
+    if (rec.registeredAt !== undefined && ctx.now - rec.registeredAt <= REVIVE_WINDOW_MS) {
+      const back = buried(s, group.title ?? "", group.color);
+      if (back) {
+        revive(s, back, group, ctx);
+        return;
+      }
     }
     rec.windowId = group.windowId;
     const own = s.ownWrites[group.id];
@@ -201,9 +235,11 @@ const handlers: Handlers = {
     }
   },
 
-  groupRemoved(s, { groupId }) {
+  groupRemoved(s, { groupId }, ctx) {
+    const rec = s.groups[groupId];
     delete s.groups[groupId];
     delete s.ownWrites[groupId];
+    if (rec) bury(s, rec, ctx.now);
   },
 
   meta(s, { tabId, description }, ctx, out) {
@@ -306,14 +342,62 @@ function registerGroup(s: State, group: GroupSnapshot, ctx: Ctx, out: Action[]):
     s.groups[group.id] = newGroupRecord(group.id, group.windowId, pending.origin, color, { stripTitle: group.title ?? "" });
     return;
   }
+  // Moved to another window (same id, just removed) or reopened (same title and colour): the same group.
+  const moved = s.removedGroups[group.id];
+  const back = moved && ctx.now - moved.removedAt <= REVIVE_WINDOW_MS ? moved : buried(s, group.title ?? "", group.color);
+  if (back) {
+    revive(s, back, group, ctx);
+    return;
+  }
   const titled = !!group.title;
   const rec = newGroupRecord(group.id, group.windowId, "user", color, {
     managed: ctx.settings.nameUserGroups,
     userNamed: titled,
     stripTitle: group.title ?? "",
+    registeredAt: ctx.now,
   });
   s.groups[group.id] = rec;
   if (rec.managed && !titled) dirty(s, group.id, ctx, out);
+}
+
+/** Keep a removed group's record for a while, so the group is still Diagonal's if Chromium brings it back. */
+export function bury(s: State, rec: GroupRecord, now: number): void {
+  s.removedGroups[rec.id] = { ...rec, removedAt: now };
+  pruneRemoved(s, now);
+}
+
+/** The most recently removed group with this title and colour, if any. */
+function buried(s: State, title: string, color: string): RemovedGroup | undefined {
+  if (!title) return undefined;
+  let best: RemovedGroup | undefined;
+  for (const g of Object.values(s.removedGroups)) {
+    if ((g.stripTitle ?? "") === title && g.color === color && (!best || g.removedAt > best.removedAt)) best = g;
+  }
+  return best;
+}
+
+function revive(s: State, back: RemovedGroup, group: GroupSnapshot, ctx: Ctx): void {
+  const { removedAt: _, registeredAt: __, ...rec } = back;
+  delete s.removedGroups[back.id];
+  delete s.groups[group.id];
+  s.groups[group.id] = {
+    ...rec,
+    id: group.id,
+    windowId: group.windowId,
+    color: isColor(group.color) ? group.color : rec.color,
+    // An untitled restore gets its title next: keep the known one so that update is not read as an edit.
+    stripTitle: group.title || rec.stripTitle,
+    revivedAt: ctx.now,
+  };
+}
+
+const revivedLately = (g: GroupRecord | undefined, now: number): boolean => !!g?.revivedAt && now - g.revivedAt <= REVIVE_WINDOW_MS;
+
+/** Leaving a group Chromium just removed, or joining one it is bringing back: a move, not a choice. */
+function inTransit(s: State, from: number, to: number, now: number): boolean {
+  const gone = (id: number) => !s.groups[id] && !!s.removedGroups[id];
+  if (to === -1) return from !== -1 && gone(from);
+  return from === -1 && (gone(to) || revivedLately(s.groups[to], now));
 }
 
 function upsertTab(s: State, tab: TabSnapshot, now: number): TabRecord {
@@ -336,6 +420,8 @@ function upsertTab(s: State, tab: TabSnapshot, now: number): TabRecord {
   // A description belongs to a page: keep it only while the tab stays on that page.
   if (before?.description && pathKey(before.url) === pathKey(url)) rec.description = before.description;
   if (before?.keepLoose) rec.keepLoose = before.keepLoose;
+  if (before?.parkedFrom) rec.parkedFrom = before.parkedFrom;
+  if (before?.parkedAt) rec.parkedAt = before.parkedAt;
   if (before?.organizedKey) rec.organizedKey = before.organizedKey;
   if (before?.handPlaced) rec.handPlaced = true;
   if (before?.fitPending) rec.fitPending = true;
@@ -362,4 +448,12 @@ function prune(s: State, now: number): void {
   for (const [id, w] of Object.entries(s.ownWrites)) if (now - w.at > OWN_WRITE_WINDOW_MS) delete s.ownWrites[+id];
   for (const [id, at] of Object.entries(s.ownUngroups)) if (now - at > OWN_WRITE_WINDOW_MS) delete s.ownUngroups[+id];
   for (const [id, at] of Object.entries(s.ownAdds)) if (now - at > OWN_WRITE_WINDOW_MS) delete s.ownAdds[+id];
+  pruneRemoved(s, now);
+}
+
+function pruneRemoved(s: State, now: number): void {
+  const removed = Object.values(s.removedGroups).sort((a, b) => b.removedAt - a.removedAt);
+  removed.forEach((g, i) => {
+    if (i >= REMOVED_CAP || now - g.removedAt > REMOVED_KEEP_MS) delete s.removedGroups[g.id];
+  });
 }

@@ -1,14 +1,14 @@
 import { stripTitle } from "../shared/label";
-import { applyEvent, type Action, type EngineEvent, type GroupSnapshot, type TabSnapshot } from "./engine";
+import { applyEvent, bury, type Action, type EngineEvent, type GroupSnapshot, type TabSnapshot } from "./engine";
 import { callHost, chromeSender, explain, HOST_MANIFEST_PATH, SETUP_ERRORS, type HostOpts, type HostReply, type Op } from "./host";
 import { GLOBAL_PAUSE_AFTER, GLOBAL_PAUSE_MS, Naming, RATE_LIMIT_PAUSES_MS, type Member, type NamePayload, type NameResult } from "./naming";
 import { AutoOrganizer, organizeWindow, undoOrganize, UNDO_WINDOW_MS as ORGANIZE_UNDO_MS } from "./organize";
 import { FitChecker } from "./fit";
 import { addToGroup, createManagedGroup, ungroup, updateGroup, type Runtime } from "./runtime";
 import { withDefaults, type Settings } from "./settings";
-import { markDirty, migrate, newGroupRecord, type GroupRecord, type HostError, type PingResult, type State, type TabRecord } from "./state";
+import { markDirty, migrate, newGroupRecord, type GroupRecord, type HostError, type PingResult, type RemovedGroup, type State, type TabRecord } from "./state";
 import { readDisk, shouldReload, TRIED_KEY, UPDATE_CHECK_MINUTES } from "./selfupdate";
-import { forgetArchived, parkedTitle, restoreAll, restoreArchived, runSweep, undoSweep, UNDO_WINDOW_MS as SWEEP_UNDO_MS } from "./tidy";
+import { adoptParked, forgetArchived, looksParked, parkedTitle, restoreAll, restoreArchived, runSweep, undoSweep, UNDO_WINDOW_MS as SWEEP_UNDO_MS } from "./tidy";
 
 /** Event wiring only: every rule lives in engine / naming / organize / tidy. */
 
@@ -20,6 +20,8 @@ const ALARM_HOST = "host-retry";
 const ALARM_AUTO = "auto-organize";
 const ALARM_UPDATE = "self-update";
 const HOST_RETRY_MS = 600_000;
+/** Records made after this were made by this worker, so after a restart they describe the new session. */
+const WORKER_STARTED_AT = Date.now();
 
 // ----- state cache ------------------------------------------------------------------------------
 
@@ -346,16 +348,24 @@ async function tabById(id: number): Promise<chrome.tabs.Tab | undefined> {
  * across restarts, so records are matched by id first and then by URL (tabs) or title and colour
  * (groups), which keeps managed groups managed after the browser restarts.
  */
-async function reconcile(): Promise<void> {
+async function reconcile(reason: "startup" | "installed"): Promise<void> {
   const [tabs, groups] = await Promise.all([chrome.tabs.query({}), chrome.tabGroups.query({})]);
   const now = Date.now();
-  const oldTabs = Object.values(state.tabs);
-  const byUrl = new Map<string, TabRecord>(oldTabs.map((t) => [t.url, t]));
+  const liveTabIds = new Set(tabs.map((t) => t.id));
+  // Records of tabs that are gone, by address: after a restart every tab has a new id.
+  const byUrl = new Map<string, TabRecord>(Object.values(state.tabs).filter((t) => !liveTabIds.has(t.id)).map((t) => [t.url, t]));
   const nextTabs: Record<number, TabRecord> = {};
   for (const t of tabs) {
     if (t.incognito || t.id === undefined) continue;
     const url = t.url || t.pendingUrl || "";
-    const prev = state.tabs[t.id]?.url === url ? state.tabs[t.id] : byUrl.get(url);
+    const same = state.tabs[t.id]?.url === url ? state.tabs[t.id] : undefined;
+    // An event handled before this ran may have recorded a restored tab as new: its old record knows more.
+    const old = byUrl.get(url);
+    const prev = old && (!same || same.createdAt >= WORKER_STARTED_AT) ? old : same;
+    // Chromium stamps a restored tab it has not shown yet with the restore time, so after a restart the
+    // stored time is the truer one for every tab but the one on screen.
+    const lastSeen =
+      reason === "startup" && prev && !t.active ? prev.lastActivatedAt : Math.max(prev?.lastActivatedAt ?? 0, t.lastAccessed ?? 0);
     nextTabs[t.id] = {
       id: t.id,
       windowId: t.windowId,
@@ -368,25 +378,50 @@ async function reconcile(): Promise<void> {
       openerTabId: t.openerTabId,
       description: prev?.description,
       parkedFrom: prev?.parkedFrom,
+      parkedAt: prev?.parkedAt,
       keepLoose: prev?.keepLoose,
       organizedKey: prev?.organizedKey,
       handPlaced: prev?.handPlaced,
+      fitPending: prev?.fitPending,
       createdAt: prev?.createdAt ?? now,
-      lastActivatedAt: Math.max(prev?.lastActivatedAt ?? 0, t.lastAccessed ?? 0) || now,
+      lastActivatedAt: lastSeen || now,
     };
   }
+  const liveGroupIds = new Set(groups.map((g) => g.id));
   const unmatched = new Map(Object.values(state.groups).map((g) => [g.id, g]));
+  // Made by this worker for a group it did not know: after a restart, that is a restored group whose
+  // events were handled before this ran, and the record from before the restart is the one to keep.
+  const fresh = (g: GroupRecord) => g.origin === "user" && (g.registeredAt ?? 0) >= WORKER_STARTED_AT;
+  const lookalike = (title: string, color: string): GroupRecord | RemovedGroup | undefined => {
+    if (title === "") return undefined;
+    const alike = (o: GroupRecord) => (o.stripTitle ?? "") === title && o.color === color;
+    return (
+      [...unmatched.values()].find((o) => alike(o) && !liveGroupIds.has(o.id) && !fresh(o)) ??
+      Object.values(state.removedGroups)
+        .filter(alike)
+        .sort((a, b) => b.removedAt - a.removedAt)[0]
+    );
+  };
   const nextGroups: Record<number, GroupRecord> = {};
   for (const g of groups) {
     const title = g.title ?? "";
-    let prev = unmatched.get(g.id);
-    if (!prev || (prev.stripTitle ?? "") !== title) {
-      prev = [...unmatched.values()].find((o) => (o.stripTitle ?? "") === title && title !== "" && o.color === g.color);
+    let prev: GroupRecord | undefined = unmatched.get(g.id);
+    if (prev && (prev.stripTitle ?? "") !== title) prev = undefined;
+    const before = !prev || fresh(prev) ? lookalike(title, g.color) : undefined;
+    if (before) prev = before;
+    let rec: GroupRecord;
+    if (prev) {
+      unmatched.delete(prev.id);
+      delete state.removedGroups[prev.id];
+      const { removedAt: _, ...kept } = prev as RemovedGroup;
+      rec = { ...kept, id: g.id, windowId: g.windowId, color: g.color, stripTitle: title };
+      if (before) rec.registeredAt = undefined;
+    } else {
+      // Untitled so far may still mean restored: its title can arrive next and match (engine.ts groupUpdated).
+      rec = newGroupRecord(g.id, g.windowId, "user", g.color, { managed: settings.nameUserGroups, userNamed: !!title, stripTitle: title, registeredAt: now });
     }
-    if (prev) unmatched.delete(prev.id);
-    const rec: GroupRecord = prev
-      ? { ...prev, id: g.id, windowId: g.windowId, color: g.color, stripTitle: title }
-      : newGroupRecord(g.id, g.windowId, "user", g.color, { managed: settings.nameUserGroups, userNamed: !!title, stripTitle: title });
+    // Earlier versions turned Parked into a plain group after a restart: give it back its job.
+    if (rec.origin === "user" && looksParked(g, settings)) adoptParked(rec, settings);
     if (rec.managed) {
       rec.dirty = true;
       rec.dirtyAt = 0;
@@ -394,14 +429,17 @@ async function reconcile(): Promise<void> {
     }
     nextGroups[g.id] = rec;
   }
+  // Groups not seen now (a closed window, a quit that did not save) may still come back: keep them a day.
+  for (const old of unmatched.values()) if (!liveGroupIds.has(old.id) && !fresh(old)) bury(state, old, now);
   state.tabs = nextTabs;
   state.groups = nextGroups;
   state.pendingCreates = [];
   state.ownWrites = {};
   state.ownUngroups = {};
   state.ownAdds = {};
-  if (state.lastSweep && now - state.lastSweep.at > SWEEP_UNDO_MS) state.lastSweep = undefined;
-  if (state.lastOrganize && now - state.lastOrganize.at > ORGANIZE_UNDO_MS) state.lastOrganize = undefined;
+  // Undo lists name tabs by id, and after a restart none of those ids exist.
+  if (reason === "startup" || (state.lastSweep && now - state.lastSweep.at > SWEEP_UNDO_MS)) state.lastSweep = undefined;
+  if (reason === "startup" || (state.lastOrganize && now - state.lastOrganize.at > ORGANIZE_UNDO_MS)) state.lastOrganize = undefined;
   commit();
 }
 
@@ -414,9 +452,13 @@ async function injectBacklog(): Promise<void> {
   }
 }
 
+let reconciled: Promise<void> | undefined;
+
 async function boot(reason: "startup" | "installed"): Promise<void> {
-  await ready;
-  await serial("reconcile", reconcile);
+  // Queued before anything else this wake handles (serial waits for `ready` itself): after a restart
+  // Chromium replays the restored groups right after onStartup, and they must meet the reconciled state.
+  reconciled = serial("reconcile", () => reconcile(reason));
+  await reconciled;
   if (!(await chrome.alarms.get(ALARM_TIDY))) chrome.alarms.create(ALARM_TIDY, { periodInMinutes: 30, delayInMinutes: 1 });
   if (reason === "installed") void injectBacklog();
   await ping();
@@ -470,8 +512,15 @@ if (GROUPS_SUPPORTED) {
 
   chrome.tabs.onActivated.addListener(({ tabId }) => void serial("tabs.onActivated", () => feed({ type: "tabActivated", tabId })));
 
-  chrome.tabGroups.onCreated.addListener((g) => void serial("tabGroups.onCreated", () => feed({ type: "groupCreated", group: snapGroup(g) })));
-  chrome.tabGroups.onUpdated.addListener((g) => void serial("tabGroups.onUpdated", () => feed({ type: "groupUpdated", group: snapGroup(g) })));
+  // A group is read when its turn comes, not as Chromium sent it: a restored group reports itself
+  // untitled and then titled, and replaying the stale "untitled" would read as you clearing the title.
+  const refetchGroup = (where: string, type: "groupCreated" | "groupUpdated") => (g: chrome.tabGroups.TabGroup) =>
+    void serial(where, async () => {
+      const now = await chrome.tabGroups.get(g.id).catch(() => undefined);
+      if (now) await feed({ type, group: snapGroup(now) });
+    });
+  chrome.tabGroups.onCreated.addListener(refetchGroup("tabGroups.onCreated", "groupCreated"));
+  chrome.tabGroups.onUpdated.addListener(refetchGroup("tabGroups.onUpdated", "groupUpdated"));
   chrome.tabGroups.onRemoved.addListener((g) => void serial("tabGroups.onRemoved", () => feed({ type: "groupRemoved", groupId: g.id })));
 }
 
@@ -500,7 +549,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     await ready;
     if (alarm.name === ALARM_NAMING) await naming.sweepDirty();
     else if (alarm.name === ALARM_AUTO) await autoOrganizer.sweep();
-    else if (alarm.name === ALARM_TIDY) await runSweep(rt).catch((e) => logError("tidy", e));
+    else if (alarm.name === ALARM_TIDY) {
+      await reconciled; // an overdue sweep right after a restart waits for the new tab and group ids
+      await runSweep(rt).catch((e) => logError("tidy", e));
+    }
     else if (alarm.name === ALARM_HOST) {
       const r = await ping();
       if (!r.ok || hostUnhealthy()) chrome.alarms.create(ALARM_HOST, { when: Date.now() + HOST_RETRY_MS });
@@ -514,18 +566,34 @@ chrome.storage.onChanged.addListener((changes, area) => {
     await ready;
     const before = settings;
     settings = withDefaults(changes.settings.newValue);
-    if (before.emoji !== settings.emoji) await rewriteTitles();
+    if (before.emoji !== settings.emoji) await rewriteTitles(before);
+    if (before.nameUserGroups !== settings.nameUserGroups) applyNameUserGroups();
     if (before.tidyMode !== settings.tidyMode || before.tidyThreshold !== settings.tidyThreshold) await runSweep(rt).catch(() => undefined);
     if (!before.autoOrganize && settings.autoOrganize) await autoOrganizer.sweep();
     refreshBadge();
   })();
 });
 
-/** Emoji switched on or off: rewrite the titles the extension wrote. */
-async function rewriteTitles(): Promise<void> {
+/** "Name groups I make too" applies to the groups you already made, not only to new ones. */
+function applyNameUserGroups(): void {
   for (const g of Object.values(state.groups)) {
-    if (g.origin === "tidy") await updateGroup(rt, g.id, { title: parkedTitle(settings) });
-    else if (g.managed && !g.userNamed && g.title) await updateGroup(rt, g.id, { title: stripTitle(g.title, g.emoji, settings.emoji) });
+    if (g.origin !== "user" || g.userNamed) continue;
+    g.managed = settings.nameUserGroups;
+    if (g.managed) {
+      markDirty(g, Date.now());
+      naming.touch(g.id);
+    }
+  }
+  commit();
+}
+
+/** Emoji switched on or off: rewrite the titles the extension wrote. */
+async function rewriteTitles(before: Settings): Promise<void> {
+  for (const g of Object.values(state.groups)) {
+    // Parked is always "user named", so its title is compared instead: one you typed stays.
+    if (g.origin === "tidy") {
+      if ((g.stripTitle ?? "") === parkedTitle(before)) await updateGroup(rt, g.id, { title: parkedTitle(settings) });
+    } else if (g.managed && !g.userNamed && g.title) await updateGroup(rt, g.id, { title: stripTitle(g.title, g.emoji, settings.emoji) });
   }
 }
 
